@@ -11,6 +11,7 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 | --- | --- | --- |
 | **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
 | **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
+| **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a set number of an item, top to bottom |
 | Sample | `/bb sample` | Worked example — copy it to start a new module |
 
 ### Buddy's Bag
@@ -58,6 +59,31 @@ silently.
 
 `/bb chest` reports the tally · `/bb chest find <name>` looks an item up · `/bb chest rescan`
 clears it · `/bb chest stop` aborts a withdrawal.
+
+### Buddy's Slaves
+
+The same idea for retainers, with **Take X** instead of take-all.
+
+Only the retainer open at a bell is readable, so the tally accumulates per retainer as you visit
+them — a table shows every retainer in bell order and when each was last scanned, so you can see at
+a glance what is still missing.
+
+**Take X** opens a prompt for an amount (with an **All** shortcut), then withdraws exactly that many
+units, taking from retainers **top to bottom** in bell order. Partial stacks are confirmed at the
+exact remainder, so a request is never overshot.
+
+A request outlives a single retainer: it takes what it can from the open one, then waits and tells
+you where the rest is —
+
+```
+High Mythrite Ingot: 220/500 — next in Chocobo
+```
+
+— and resumes on its own as soon as you open that retainer. Every stack is confirmed present in
+your inventory before it counts toward the total.
+
+`/bb slaves` reports the tally · `/bb slaves find <name>` looks an item up · `/bb slaves rescan`
+clears it · `/bb slaves stop` cancels a request.
 
 ## Requirements
 

@@ -236,10 +236,10 @@ public sealed class BuddysChestModule : ModuleBase
 
     private void StepConfirm()
     {
-        if (QuantityPrompt.IsOpen())
+        if (Game.QuantityPrompt.IsOpen())
         {
             // The prompt already defaults to the full stack, so this just presses OK.
-            if (QuantityPrompt.Confirm(_pendingQuantity))
+            if (Game.QuantityPrompt.Confirm(_pendingQuantity))
             {
                 _step = Step.Verify;
                 _stepDeadline = DateTime.UtcNow + VerifyTimeout;

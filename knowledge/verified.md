@@ -196,6 +196,41 @@ unverified `FireCallbackInt(tabIndex)` guess was not worth keeping.
 
 ---
 
+## Retainer API (Buddy's Slaves)
+
+Confirmed by reflecting over the live `FFXIVClientStructs.dll`.
+
+| Symbol | Value / signature |
+| --- | --- |
+| `InventoryType.RetainerPage1..7` | `10000`–`10006` |
+| `InventoryType.RetainerCrystals` | `12001` |
+| `InventoryType.RetainerGil` / `RetainerMarket` / `RetainerEquippedItems` | `12000` / `12002` / `11000` |
+| `RetainerManager.Instance()->IsReady` | guard before reading anything |
+| `RetainerManager.GetRetainerCount()` | `byte` |
+| `RetainerManager.GetRetainerBySortedIndex(uint)` | **bell display order — "top to bottom"** |
+| `RetainerManager.GetActiveRetainer()` | the retainer whose inventory is loaded |
+| `Retainer.NameString` | `string` property (the raw field is `_name`, a `FixedSizeArray32`) |
+| `Retainer.RetainerId` / `ItemCount` / `Gil` | |
+| Addon names | **`InventoryRetainer`** and **`InventoryRetainerLarge`** (expanded view) |
+
+**One retainer is readable at a time** — only the retainer open at a bell has loaded containers, so
+the tally accumulates per retainer across visits, exactly like the FC chest compartments.
+
+**A withdrawal request outlives a single retainer.** "Take 500" pulls what it can from the open
+retainer, then *pauses* rather than failing, and resumes automatically when the next retainer is
+opened — draining them in bell order via `GetRetainerBySortedIndex`.
+
+**Partial amounts come from the quantity prompt**, confirmed at exactly the remainder rather than
+the stack size, so a request is never overshot. The same `QuantityPrompt` helper serves the chest
+(which always confirms the full stack) and retainers (which may confirm less).
+
+⚠️ Retainer withdrawal uses `InventoryManager.MoveItemSlot`, not an agent call. Whether it raises
+the quantity prompt the same way the FC chest does is **assumed, not yet confirmed in game**. If it
+moves whole stacks without prompting, a partial request could overshoot by up to one stack — the
+verify step counts what actually arrived, so the report stays truthful either way.
+
+---
+
 ## APIs confirmed present in this Dalamud
 
 Checked against `%AppData%\XIVLauncher\addon\Hooks\dev\Dalamud.xml` before use:

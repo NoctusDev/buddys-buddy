@@ -139,60 +139,11 @@ internal static unsafe class FreeCompanyChest
     }
 
     /// <summary>Free slots across the player's four inventory pages.</summary>
-    public static int CountFreePlayerSlots()
-    {
-        var manager = InventoryManager.Instance();
-        if (manager is null)
-            return 0;
-
-        var free = 0;
-        foreach (var bag in PlayerBags)
-        {
-            var container = manager->GetInventoryContainer(bag);
-            if (container is null || !container->IsLoaded)
-                continue;
-
-            for (var i = 0; i < container->Size; i++)
-            {
-                var item = container->GetInventorySlot(i);
-                if (item is not null && item->ItemId == 0)
-                    free++;
-            }
-        }
-
-        return free;
-    }
+    public static int CountFreePlayerSlots() => Game.PlayerInventory.CountFreeSlots();
 
     /// <summary>Finds the first empty player inventory slot; only empty slots are ever targeted.</summary>
     public static bool TryFindFreePlayerSlot(out InventoryType bag, out ushort slot)
-    {
-        bag = default;
-        slot = 0;
-
-        var manager = InventoryManager.Instance();
-        if (manager is null)
-            return false;
-
-        foreach (var candidate in PlayerBags)
-        {
-            var container = manager->GetInventoryContainer(candidate);
-            if (container is null || !container->IsLoaded)
-                continue;
-
-            for (var i = 0; i < container->Size; i++)
-            {
-                var item = container->GetInventorySlot(i);
-                if (item is null || item->ItemId != 0)
-                    continue;
-
-                bag = candidate;
-                slot = (ushort)i;
-                return true;
-            }
-        }
-
-        return false;
-    }
+        => Game.PlayerInventory.TryFindFreeSlot(out bag, out slot);
 
     /// <summary>
     /// Moves a whole stack out of the chest.
@@ -221,51 +172,7 @@ internal static unsafe class FreeCompanyChest
 
     /// <summary>Units of an item already in the player's bags — used to confirm a withdrawal landed.</summary>
     public static int CountInPlayerInventory(uint itemId, bool highQuality)
-    {
-        var manager = InventoryManager.Instance();
-        return manager is null
-            ? 0
-            : manager->GetInventoryItemCount(itemId, highQuality, checkEquipped: false, checkArmory: false, 0);
-    }
-}
-
-/// <summary>
-/// The "how many?" dialog the game raises when taking a stack out of the chest.
-/// </summary>
-/// <remarks>
-/// Taking from the free company chest always raises this prompt — a move on its own never completes
-/// the withdrawal, which is why the first version appeared to do nothing. The prompt already
-/// defaults to the full stack, so confirming it is all that is required.
-/// </remarks>
-internal static unsafe class QuantityPrompt
-{
-    public const string AddonName = "InputNumeric";
-
-    public static bool IsOpen()
-    {
-        var addon = DalamudServices.GameGui.GetAddonByName(AddonName, 1);
-        return !addon.IsNull && addon.IsReady && addon.IsVisible;
-    }
-
-    /// <summary>
-    /// Confirms the prompt at <paramref name="quantity"/>, which should be the whole stack.
-    /// </summary>
-    /// <remarks>
-    /// Fires the addon's callback with a single integer and <c>close: true</c>, the same path the
-    /// OK button takes. The dialog defaults to the maximum, so this matches what is on screen.
-    /// </remarks>
-    public static bool Confirm(int quantity)
-    {
-        var addon = DalamudServices.GameGui.GetAddonByName<AtkUnitBase>(AddonName, 1);
-        if (addon is null || !addon->IsVisible)
-            return false;
-
-        var value = stackalloc AtkValue[1];
-        value->Type = AtkValueType.Int;
-        value->Int = quantity;
-
-        return addon->FireCallback(1, value, true);
-    }
+        => Game.PlayerInventory.CountItem(itemId, highQuality);
 }
 
 /// <summary>One occupied slot in the chest.</summary>
