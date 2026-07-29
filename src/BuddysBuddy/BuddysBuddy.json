@@ -1,0 +1,9 @@
+{
+  "Name": "Buddy's Buddy",
+  "Author": "NoctusDev",
+  "Punchline": "A pocketful of small plugins in one.",
+  "Description": "Buddy's Buddy is a host for small, self-contained modules. Each module is its own mini-plugin with its own tab, settings and commands, and can be enabled or disabled independently.",
+  "InternalName": "BuddysBuddy",
+  "RepoUrl": "https://github.com/NoctusDev/buddys-buddy",
+  "Tags": ["utility", "modules", "qol"]
+}

@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Dalamud.NET.Sdk resolves the game/plugin assemblies from a local Dalamud
+      # install, which CI does not have. Download the dev distribution and point
+      # DALAMUD_HOME at it so the build can reference them.
+      - name: Fetch Dalamud dev distribution
+        shell: pwsh
+        run: |
+          $dalamud = Join-Path $env:APPDATA 'XIVLauncher\addon\Hooks\dev'
+          New-Item -ItemType Directory -Force -Path $dalamud | Out-Null
+          Invoke-WebRequest -Uri 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile dalamud.zip
+          Expand-Archive -Path dalamud.zip -DestinationPath $dalamud -Force
+          echo "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
+
+      - name: Build
+        run: dotnet build BuddysBuddy.slnx -c Release --nologo
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuddysBuddy
+          path: src/BuddysBuddy/bin/Release/**/BuddysBuddy/*
+          if-no-files-found: warn

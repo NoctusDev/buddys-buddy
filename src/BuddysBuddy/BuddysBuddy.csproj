@@ -1,0 +1,27 @@
+<!--
+  Buddy's Buddy — Dalamud plugin host.
+
+  Uses the Dalamud.NET.Sdk MSBuild SDK, which references the local Dalamud dev assemblies
+  (%AppData%\XIVLauncher\addon\Hooks\dev) and runs DalamudPackager on build.
+
+  The SDK version is pinned to match the installed Dalamud, which targets .NETCoreApp v10.0
+  (checked 2026-07-28). If restore fails on the SDK version, bump it to the current
+  Dalamud.NET.Sdk release.
+-->
+<Project Sdk="Dalamud.NET.Sdk/13.0.0">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <AssemblyName>BuddysBuddy</AssemblyName>
+    <RootNamespace>BuddysBuddy</RootNamespace>
+
+    <Version>0.1.0</Version>
+    <Authors>NoctusDev</Authors>
+    <Description>A host plugin for a collection of small FFXIV quality-of-life modules.</Description>
+  </PropertyGroup>
+
+</Project>

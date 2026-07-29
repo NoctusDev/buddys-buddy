@@ -1,0 +1,29 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+.vscode/*
+!.vscode/extensions.json
+
+# NuGet
+*.nupkg
+packages/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Local scratch
+cache/
+reference/
+*.log
