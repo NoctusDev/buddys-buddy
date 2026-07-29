@@ -1,3 +1,4 @@
+using System;
 using BuddysBuddy.Config;
 using BuddysBuddy.Modules;
 using BuddysBuddy.Services;
@@ -26,7 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         pluginInterface.Create<DalamudServices>();
 
-        Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Config = LoadConfig(pluginInterface);
         if (Config.Migrate())
             Config.Save();
 
@@ -49,6 +50,27 @@ public sealed class Plugin : IDalamudPlugin
         DalamudServices.ClientState.Login += OnLogin;
 
         DalamudServices.Log.Information("Buddy's Buddy loaded with {Count} module(s).", _modules.Modules.Count);
+    }
+
+    /// <summary>
+    /// Reads the saved configuration, falling back to defaults if it cannot be deserialised.
+    /// </summary>
+    /// <remarks>
+    /// Dalamud deserialises the config inside the plugin constructor, so a config it cannot read
+    /// throws out of the constructor and the plugin fails to load entirely — with the only clue in
+    /// the Dalamud log. A settings file is never worth a dead plugin: log it and start fresh.
+    /// </remarks>
+    private static Configuration LoadConfig(IDalamudPluginInterface pluginInterface)
+    {
+        try
+        {
+            return pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        }
+        catch (Exception ex)
+        {
+            DalamudServices.Log.Error(ex, "Saved configuration could not be read; starting from defaults.");
+            return new Configuration();
+        }
     }
 
     private void ToggleMainWindow() => _mainWindow.Toggle();

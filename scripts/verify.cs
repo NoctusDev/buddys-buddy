@@ -21,8 +21,23 @@ var binDir = Path.Combine(repo, "src", "BuddysBuddy", "bin", config);
 var dll = Path.Combine(binDir, "BuddysBuddy.dll");
 var manifestPath = Path.Combine(binDir, "BuddysBuddy.json");
 
+// Resolve the Dalamud this machine actually runs. The SDK default (%AppData%\XIVLauncher) is NOT
+// it here — XIVLauncher runs with --roamingPath, and the default location holds a stale install on
+// an older API level. Checking against the wrong one is how an "outdated" plugin passed verify.
+// Keep this in sync with Directory.Build.props.
 var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-var dalamudDir = Path.Combine(appData, "XIVLauncher", "addon", "Hooks", "dev");
+
+var dalamudDir =
+    Environment.GetEnvironmentVariable("DALAMUD_HOME") is { Length: > 0 } env && Directory.Exists(env)
+        ? env
+        : Directory.Exists(@"d:\Multibox\Glumishxiv3\addon\Hooks\dev")
+            ? @"d:\Multibox\Glumishxiv3\addon\Hooks\dev"
+            : Path.Combine(appData, "XIVLauncher", "addon", "Hooks", "dev");
+
+// installedPlugins sits beside addon/, three levels above the Hooks\dev folder.
+var roamingRoot = Path.GetFullPath(Path.Combine(dalamudDir, "..", "..", ".."));
+
+Console.WriteLine($"Dalamud: {dalamudDir}\n");
 
 var failures = new List<string>();
 void Check(bool ok, string label, string detail = "")
@@ -43,7 +58,7 @@ if (failures.Count > 0)
 // The API level Dalamud accepts, inferred from the plugins it currently has installed. This is
 // the check that matters most: a mismatch builds cleanly but is rejected at load time.
 Console.WriteLine("\nAPI level");
-var installedRoot = Path.Combine(appData, "XIVLauncher", "installedPlugins");
+var installedRoot = Path.Combine(roamingRoot, "installedPlugins");
 var levels = new Dictionary<int, int>();
 
 if (Directory.Exists(installedRoot))

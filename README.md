@@ -44,23 +44,37 @@ Release build additionally packages `bin/Release/BuddysBuddy/latest.zip` for dis
 If restore fails on the SDK version, bump `Sdk="Dalamud.NET.Sdk/13.0.0"` in
 [BuddysBuddy.csproj](src/BuddysBuddy/BuddysBuddy.csproj) to match your installed Dalamud.
 
+> **This machine's Dalamud is not in the default location.** XIVLauncher runs with a custom
+> roaming path, so the live install is `d:\Multibox\Glumishxiv3`, while the SDK's default
+> `%AppData%\XIVLauncher` holds a stale copy on an older API level. Building against the default
+> produces a plugin the game rejects as outdated. [`Directory.Build.props`](Directory.Build.props)
+> pins this; see [knowledge/verified.md](knowledge/verified.md).
+
 ## Verify
 
 ```sh
-dotnet run scripts/verify.cs
+dotnet run scripts/verify.cs          # structure: API level, entry point, modules
+dotnet run scripts/verify-config.cs   # the saved config still loads
 ```
 
-Reflection-only-loads the built plugin and asserts what Dalamud checks at load time — API level,
-entry point, module discoverability — so a broken build is caught without launching the game. The
-API level check matters most: a mismatch **compiles cleanly** and only fails in game.
+Between them these cover the two ways this plugin has actually broken, both of which **compiled
+cleanly** and only failed in game:
+
+- an **API level** mismatch, so Dalamud refuses the plugin as outdated
+- a **config** Dalamud cannot deserialise, which throws out of the plugin constructor and kills the
+  whole plugin
 
 ```
 API level
-  PASS  manifest API level matches installed Dalamud — ours=14, installed=API 14x68
+  PASS  manifest API level matches installed Dalamud — ours=15, installed=API 15x86
 Modules
-  PASS  SampleModule has a public parameterless constructor
+  PASS  BuddysBagModule has a public parameterless constructor
 All checks passed. The plugin is structurally loadable by Dalamud.
 ```
+
+They are separate on purpose: `verify.cs` uses a reflection-only load and so can never run a
+serializer, while `verify-config.cs` really loads the assembly and runs Newtonsoft with Dalamud's
+own settings against the config file on disk.
 
 This exists because **GitHub Actions cannot run on this account** — jobs are refused with *"your
 account is locked due to a billing issue"*, which is account-wide and unaffected by repo

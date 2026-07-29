@@ -4,13 +4,18 @@
   Uses the Dalamud.NET.Sdk MSBuild SDK, which references the local Dalamud dev assemblies
   (%AppData%\XIVLauncher\addon\Hooks\dev) and runs DalamudPackager on build.
 
-  The SDK version determines the emitted DalamudApiLevel, which must match the installed Dalamud
-  or the plugin is rejected as outdated. Dalamud 15.0.3.0 uses **API level 14**, confirmed against
-  all 63 plugins in %AppData%\XIVLauncher\installedPlugins (checked 2026-07-28) — so pin the 14.x
-  SDK, not 15.x. Verify after changing: the generated bin\<cfg>\BuddysBuddy.json must read
-  "DalamudApiLevel": 14.
+  The SDK version determines the emitted DalamudApiLevel, which must match the Dalamud this
+  machine actually runs or the plugin is rejected as outdated.
+
+  That Dalamud lives at d:\Multibox\Glumishxiv3 (see Directory.Build.props), not the SDK's default
+  %AppData%\XIVLauncher — and it is on **API level 15**, confirmed from its own installedPlugins
+  (83 plugins on 15, checked 2026-07-28). Do not trust the %AppData% install: it is a stale copy on
+  API 14 and reading it is what produced an "outdated" plugin.
+
+  Verify after any change: bin\<cfg>\BuddysBuddy.json must read "DalamudApiLevel": 15.
+  `dotnet run scripts/verify.cs` checks this against the live install.
 -->
-<Project Sdk="Dalamud.NET.Sdk/14.0.2">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
