@@ -5,7 +5,25 @@ A [Dalamud](https://github.com/goatcorp/Dalamud) plugin for FINAL FANTASY XIV th
 self-contained *module* inside one assembly, with its own tab, its own settings, and its own
 `/bb <module>` command — enable or disable each one independently, no game restart.
 
-> Status: scaffold. The only module so far is `Sample`, which exists to be copied.
+## Modules
+
+| Module | Command | What it does |
+| --- | --- | --- |
+| **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
+| Sample | `/bb sample` | Worked example — copy it to start a new module |
+
+### Buddy's Bag
+
+`/bb bag` opens the saddlebag if it is closed, then empties it one item per tick until the
+saddlebag is empty or your inventory fills up. `/bb bag stop` aborts, `/bb bag status` reports.
+
+It stops on its own when the saddlebag empties, your inventory fills, the saddlebag window closes,
+you log out, or moves stop making progress. Items only ever land in **empty** inventory slots —
+moving onto an occupied slot swaps the two items, which would push your inventory into the
+saddlebag — so partial stacks are left unmerged rather than risking that.
+
+Tunable under Settings: delay between moves (default 200 ms — the game refuses moves issued too
+quickly), whether to include the premium saddlebag pages, and whether to report to chat.
 
 ## Requirements
 

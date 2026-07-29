@@ -51,6 +51,54 @@ in game, where Dalamud rejects the plugin as outdated. `dotnet run scripts/verif
 
 ---
 
+## Saddlebag API (Buddy's Bag)
+
+Confirmed by reflecting over the installed `FFXIVClientStructs.dll` — not guessed. Re-probe rather
+than assume if a Dalamud update changes anything.
+
+| Symbol | Value / signature |
+| --- | --- |
+| `InventoryType.SaddleBag1` / `SaddleBag2` | `4000` / `4001` |
+| `InventoryType.PremiumSaddleBag1` / `2` | `4100` / `4101` — only loaded with a Companion subscription |
+| `InventoryType.Inventory1..4` | `0..3` — the player's four bag pages |
+| `InventoryManager.Instance()` | may return null; always check |
+| `InventoryManager.GetInventoryContainer(InventoryType)` | `InventoryContainer*` |
+| `InventoryManager.MoveItemSlot(src, ushort srcSlot, dst, ushort dstSlot, bool)` | returns `int`, `0` = success |
+| `InventoryContainer` | `Items`, `Type`, `Size`, `IsLoaded`, `GetInventorySlot(int)` |
+| `InventoryItem` | `ItemId` (`0` = empty slot), `Quantity`, `Flags`, `Slot` |
+| `AgentId.InventoryBuddy` | `300` |
+| Saddlebag addon name | **`InventoryBuddy`** (type `AddonInventoryBuddy`) |
+
+**The saddlebag window must be open** for reads and moves to work — with it closed the containers
+report unloaded and moves silently fail. Gate everything on the addon being visible.
+
+**Moves apply asynchronously.** The container still reports the old contents on the same frame, so
+a tight loop reads stale data and issues duplicate moves. Do one move per framework tick with a
+delay (default 200 ms) and judge progress by watching the remaining count fall — *not* by the
+return code, so a silently refused move is still detected.
+
+**Only ever move into an empty destination slot.** `MoveItemSlot` onto an occupied slot *swaps* the
+two items, which would push an inventory item into the saddlebag — the exact opposite of the goal.
+The cost is that partial stacks do not merge.
+
+### Addon lookup — use the wrapper, not a cast
+
+```csharp
+// WRONG — CS0030, AtkUnitBasePtr is a Dalamud wrapper, not a raw pointer
+var addon = (AtkUnitBase*)GameGui.GetAddonByName("InventoryBuddy", 1);
+
+// RIGHT — the wrapper exposes what is needed, and needs no unsafe block
+var addon = GameGui.GetAddonByName("InventoryBuddy", 1);
+return !addon.IsNull && addon.IsReady && addon.IsVisible;
+```
+
+### Item names
+
+`DataManager.GetExcelSheet<Item>()?.GetRowOrDefault(id)?.Name` returns a `ReadOnlySeString`;
+call `.ToString()`. `Lumina.Excel.Sheets.Item` exposes `Name`, `RowId`, `StackSize` as properties.
+
+---
+
 ## APIs confirmed present in this Dalamud
 
 Checked against `%AppData%\XIVLauncher\addon\Hooks\dev\Dalamud.xml` before use:
