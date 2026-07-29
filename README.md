@@ -11,7 +11,7 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 | --- | --- | --- |
 | **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
 | **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
-| **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a set number of an item, top to bottom |
+| **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a shopping list of items, top to bottom |
 | Sample | `/bb sample` | Worked example — copy it to start a new module |
 
 ### Buddy's Bag
@@ -82,8 +82,31 @@ High Mythrite Ingot: 220/500 — next in Chocobo
 — and resumes on its own as soon as you open that retainer. Every stack is confirmed present in
 your inventory before it counts toward the total.
 
-`/bb slaves` reports the tally · `/bb slaves find <name>` looks an item up · `/bb slaves rescan`
-clears it · `/bb slaves stop` cancels a request.
+#### Queue mode — the shopping list
+
+Tick **Queue mode** and the row buttons become **Add**, building a list of as many items as you
+like. **Run list** then works the whole list at once.
+
+The queue drains **greedily per retainer**: everything the open retainer can supply is taken —
+across every item on the list — before anything waits. Ask for 20 items, and if the first retainer
+fully satisfies 8 of them and runs dry on 2, it takes all 8 plus whatever it has of the other 2,
+then pauses and names where the rest is. Open that retainer and it resumes automatically. Each
+retainer is visited once, not once per item.
+
+The list shows per-item progress and state:
+
+```
+Shopping list (8/20 complete)
+High Mythrite Ingot   340 / 500   Chocobo
+Titanium Ore          200 / 200   done
+Fire Crystal            0 / 999   taking…
+```
+
+`Run list` · `Stop` · `Clear list`, and **x** removes a single row. Items can be added while a run
+is in progress.
+
+`/bb slaves` reports the tally and list · `/bb slaves find <name>` looks an item up ·
+`/bb slaves run` · `/bb slaves stop` · `/bb slaves clear` · `/bb slaves rescan`.
 
 ## Requirements
 

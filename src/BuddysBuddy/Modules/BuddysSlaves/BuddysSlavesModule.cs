@@ -11,12 +11,13 @@ using Dalamud.Plugin.Services;
 namespace BuddysBuddy.Modules.BuddysSlaves;
 
 /// <summary>
-/// Tallies every retainer's inventory and withdraws a requested number of units of one item.
+/// Tallies every retainer and withdraws requested amounts of one or more items.
 /// </summary>
 /// <remarks>
 /// Only the retainer open at a bell is readable, so both the tally and the withdrawal work across
-/// visits: the tally accumulates per retainer, and a withdrawal request survives closing one
-/// retainer and opening the next, draining them in bell order until the requested amount is met.
+/// visits. A withdrawal is always a queue — a single "take X" is simply a queue of one — and the
+/// queue drains greedily: everything the open retainer can supply is taken before waiting for the
+/// next retainer, so each retainer is visited once rather than once per item.
 /// </remarks>
 public sealed class BuddysSlavesModule : ModuleBase
 {
@@ -24,13 +25,13 @@ public sealed class BuddysSlavesModule : ModuleBase
 
     public override string InternalName => "slaves";
 
-    public override string Description => "Tallies all retainers and withdraws a set number of an item.";
+    public override string Description => "Tallies all retainers and withdraws a shopping list of items.";
 
     public override int Order => 30;
 
     private enum Step
     {
-        /// <summary>No stacks reachable — waiting for a retainer holding the item to be opened.</summary>
+        /// <summary>Nothing reachable here — waiting for a retainer holding something still wanted.</summary>
         Waiting,
 
         Take,
@@ -38,18 +39,20 @@ public sealed class BuddysSlavesModule : ModuleBase
         Verify,
     }
 
-    /// <summary>An outstanding "take N of this item" request, which outlives any one retainer.</summary>
-    private sealed class Request
+    /// <summary>One line of the shopping list.</summary>
+    private sealed class QueueEntry
     {
         public required RetainerItemKey Key { get; init; }
 
         public required string Name { get; init; }
 
-        public required int Requested { get; init; }
+        public int Requested { get; set; }
 
         public int Taken { get; set; }
 
         public int Remaining => Math.Max(0, Requested - Taken);
+
+        public bool Done => Remaining == 0;
     }
 
     private static readonly TimeSpan PromptTimeout = TimeSpan.FromSeconds(3);
@@ -58,7 +61,13 @@ public sealed class BuddysSlavesModule : ModuleBase
     private BuddysSlavesConfig _settings = null!;
     private readonly RetainerTally _tally = new();
 
-    private Request? _request;
+    private readonly List<QueueEntry> _queue = [];
+    private bool _running;
+
+    /// <summary>Items the open retainer has run out of; cleared whenever a different one is opened.</summary>
+    private readonly HashSet<RetainerItemKey> _exhaustedHere = [];
+
+    private QueueEntry? _current;
     private Step _step = Step.Waiting;
     private DateTime _nextStepAt;
     private DateTime _stepDeadline;
@@ -69,7 +78,6 @@ public sealed class BuddysSlavesModule : ModuleBase
     private string _filter = string.Empty;
     private ulong _lastActiveId;
 
-    // "Take X" popup state.
     private RetainerItemTotal? _promptItem;
     private int _promptAmount = 1;
 
@@ -82,11 +90,10 @@ public sealed class BuddysSlavesModule : ModuleBase
     protected override void OnUnload()
     {
         Framework.Update -= OnFrameworkUpdate;
-        _request = null;
+        _running = false;
+        _queue.Clear();
         _tally.Clear();
     }
-
-    public bool IsWithdrawing => _request is not null;
 
     // ── Tick ─────────────────────────────────────────────────────────────────
 
@@ -96,83 +103,107 @@ public sealed class BuddysSlavesModule : ModuleBase
             return;
 
         _nextStepAt = DateTime.UtcNow.AddMilliseconds(
-            IsWithdrawing ? Math.Max(BuddysSlavesConfig.MinDelayMs, _settings.DelayMs) : _settings.ScanIntervalMs);
+            _running ? Math.Max(BuddysSlavesConfig.MinDelayMs, _settings.DelayMs) : _settings.ScanIntervalMs);
 
         try
         {
-            var active = Retainers.GetActive();
-            var activeId = active?.Id ?? 0;
+            var activeId = Retainers.GetActive()?.Id ?? 0;
 
-            // Deliberately does NOT drop the newly active retainer's snapshot. The game reports an
-            // active retainer while the bell list is merely being browsed, so invalidating on every
-            // switch wiped retainers that had already been scanned. Refresh() replaces a snapshot
-            // whenever the contents actually differ, which is the re-read that was wanted.
+            // Snapshots are never dropped here: GetActiveRetainer reports a retainer while the bell
+            // list is merely being browsed, and Refresh replaces contents that actually changed.
             if (activeId != _lastActiveId)
             {
                 _lastActiveId = activeId;
 
-                // A paused request can resume the moment a new retainer is available.
-                if (IsWithdrawing && _step == Step.Waiting)
+                // A new retainer may hold what the last one ran out of, so give every entry
+                // another chance and resume a paused queue.
+                _exhaustedHere.Clear();
+
+                if (_running && _step == Step.Waiting)
                     _step = Step.Take;
             }
 
             _tally.Refresh();
 
-            if (IsWithdrawing)
-                StepWithdrawing();
+            if (_running)
+                StepQueue();
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Buddy's Slaves threw while running; stopping.");
-            StopWithdrawing("Stopped after an error — see the Dalamud log.");
+            StopQueue("Stopped after an error — see the Dalamud log.");
         }
     }
 
-    // ── Withdrawal ───────────────────────────────────────────────────────────
+    // ── Queue ────────────────────────────────────────────────────────────────
 
-    private void StartWithdrawing(RetainerItemTotal item, int amount)
+    private void AddToQueue(RetainerItemTotal item, int amount)
     {
-        if (IsWithdrawing || amount <= 0)
+        if (amount <= 0)
             return;
 
-        _request = new Request { Key = item.Key, Name = item.Name, Requested = amount };
-        _step = Step.Take;
-        _nextStepAt = DateTime.UtcNow;
-        SetStatus($"Taking {amount:N0} × {item.Name}…");
+        var existing = _queue.FirstOrDefault(e => e.Key.Equals(item.Key));
+        if (existing is not null)
+        {
+            existing.Requested += amount;
+            SetStatus($"{existing.Name}: now wanting {existing.Requested:N0}.");
+            return;
+        }
+
+        _queue.Add(new QueueEntry { Key = item.Key, Name = item.Name, Requested = amount });
+        SetStatus($"Queued {amount:N0} × {item.Name}.");
     }
 
-    public void StopWithdrawing(string reason)
+    private void StartQueue()
     {
-        if (_request is null)
+        if (_running || _queue.Count == 0)
             return;
 
-        var request = _request;
-        _request = null;
+        if (_queue.All(e => e.Done))
+        {
+            SetStatus("Everything queued is already satisfied.");
+            return;
+        }
+
+        _running = true;
+        _exhaustedHere.Clear();
+        _step = Step.Take;
+        _nextStepAt = DateTime.UtcNow;
+        SetStatus($"Working through {_queue.Count(e => !e.Done)} item(s)…");
+    }
+
+    public void StopQueue(string reason)
+    {
+        if (!_running)
+            return;
+
+        _running = false;
+        _current = null;
         _step = Step.Waiting;
         SetStatus(reason);
 
-        // Refresh alone is enough: the retainer we pulled from is still open, and its contents have
-        // changed, so the snapshot is replaced. Invalidating here would lose it if it just closed.
         _tally.Refresh();
 
-        if (_settings.AnnounceInChat)
-            Print($"{reason} Took {request.Taken:N0} of {request.Requested:N0} {request.Name}.");
+        if (!_settings.AnnounceInChat)
+            return;
+
+        var done = _queue.Count(e => e.Done);
+        Print($"{reason} {done}/{_queue.Count} item(s) complete, " +
+              $"{_queue.Sum(e => e.Taken):N0} unit(s) taken.");
     }
 
-    private void StepWithdrawing()
+    private void StepQueue()
     {
-        var request = _request!;
-
-        if (request.Remaining == 0)
+        if (_queue.Count == 0 || _queue.All(e => e.Done))
         {
-            StopWithdrawing($"Done — took {request.Taken:N0} × {request.Name}.");
+            StopQueue("Queue complete.");
             return;
         }
 
         if (!Retainers.IsInventoryOpen())
         {
             _step = Step.Waiting;
-            SetStatus($"{request.Name}: {request.Taken:N0}/{request.Requested:N0} — open the next retainer.");
+            SetStatus(DescribeWait());
             return;
         }
 
@@ -180,55 +211,54 @@ public sealed class BuddysSlavesModule : ModuleBase
         {
             case Step.Waiting:
             case Step.Take:
-                StepTake(request);
+                StepTake();
                 break;
             case Step.Confirm:
                 StepConfirm();
                 break;
             case Step.Verify:
-                StepVerify(request);
+                StepVerify();
                 break;
         }
     }
 
-    private void StepTake(Request request)
+    private void StepTake()
     {
-        var stacks = RetainerTally.FindLiveStacks(request.Key);
+        // Take everything this retainer can supply before moving on: pick the first outstanding
+        // entry it has not already run out of.
+        var entry = _queue.FirstOrDefault(e => !e.Done && !_exhaustedHere.Contains(e.Key));
+        if (entry is null)
+        {
+            _step = Step.Waiting;
+            SetStatus(DescribeWait());
+            return;
+        }
+
+        var stacks = RetainerTally.FindLiveStacks(entry.Key);
         if (stacks.Count == 0)
         {
-            // This retainer is exhausted; wait for the next one rather than abandoning the request.
-            var elsewhere = _tally.RemainingElsewhere(request.Key, Retainers.GetActive()?.Id);
-            if (elsewhere.Count == 0 && _settings.StopWhenNoneLeft)
-            {
-                StopWithdrawing($"Stopped — no more {request.Name} in any scanned retainer.");
-                return;
-            }
-
-            _step = Step.Waiting;
-            var next = elsewhere.FirstOrDefault();
-            SetStatus(next is null
-                ? $"{request.Name}: {request.Taken:N0}/{request.Requested:N0} — open a retainer holding more."
-                : $"{request.Name}: {request.Taken:N0}/{request.Requested:N0} — next in {next.RetainerName}.");
+            // This retainer has no more of this item; try the next entry on the next tick.
+            _exhaustedHere.Add(entry.Key);
             return;
         }
 
         if (!PlayerInventory.TryFindFreeSlot(out var dstBag, out var dstSlot))
         {
-            StopWithdrawing($"Stopped — inventory is full, {request.Remaining:N0} still wanted.");
+            StopQueue("Stopped — your inventory is full.");
             return;
         }
 
         var source = stacks[0];
 
-        // Never take more than was asked for: a partial stack is confirmed at exactly the remainder.
-        _pendingQuantity = Math.Min(request.Remaining, source.Quantity);
-        _countBefore = PlayerInventory.CountItem(request.Key.ItemId, request.Key.HighQuality);
+        _current = entry;
+        _pendingQuantity = Math.Min(entry.Remaining, source.Quantity);
+        _countBefore = PlayerInventory.CountItem(entry.Key.ItemId, entry.Key.HighQuality);
 
         Retainers.MoveOut(source.Page, source.Slot, dstBag, dstSlot);
 
         _step = Step.Confirm;
         _stepDeadline = DateTime.UtcNow + PromptTimeout;
-        SetStatus($"{request.Name}: confirming {_pendingQuantity:N0}…");
+        SetStatus($"{entry.Name}: taking {_pendingQuantity:N0}…");
     }
 
     private void StepConfirm()
@@ -244,7 +274,6 @@ public sealed class BuddysSlavesModule : ModuleBase
             return;
         }
 
-        // No prompt yet, or this move did not raise one. Verification settles which.
         if (DateTime.UtcNow <= _stepDeadline)
             return;
 
@@ -252,28 +281,56 @@ public sealed class BuddysSlavesModule : ModuleBase
         _stepDeadline = DateTime.UtcNow + VerifyTimeout;
     }
 
-    private void StepVerify(Request request)
+    private void StepVerify()
     {
-        var gained = PlayerInventory.CountItem(request.Key.ItemId, request.Key.HighQuality) - _countBefore;
+        var entry = _current;
+        if (entry is null)
+        {
+            _step = Step.Take;
+            return;
+        }
+
+        var gained = PlayerInventory.CountItem(entry.Key.ItemId, entry.Key.HighQuality) - _countBefore;
 
         if (gained >= _pendingQuantity)
         {
-            request.Taken += gained;
+            entry.Taken += gained;
             _step = Step.Take;
-            SetStatus($"{request.Name}: {request.Taken:N0}/{request.Requested:N0} taken…");
+            SetStatus($"{entry.Name}: {entry.Taken:N0}/{entry.Requested:N0}…");
             return;
         }
 
         if (gained > 0 && DateTime.UtcNow > _stepDeadline)
         {
-            request.Taken += gained;
+            entry.Taken += gained;
             _step = Step.Take;
-            Log.Warning("Expected {Expected} of {Item} but {Gained} arrived.", _pendingQuantity, request.Name, gained);
+            Log.Warning("Expected {Expected} of {Item} but {Gained} arrived.", _pendingQuantity, entry.Name, gained);
             return;
         }
 
         if (DateTime.UtcNow > _stepDeadline)
-            StopWithdrawing($"Stopped — {request.Name} never arrived in your inventory.");
+            StopQueue($"Stopped — {entry.Name} never arrived in your inventory.");
+    }
+
+    /// <summary>Explains what the queue is waiting for, naming a retainer when the tally knows one.</summary>
+    private string DescribeWait()
+    {
+        var outstanding = _queue.Where(e => !e.Done).ToList();
+        if (outstanding.Count == 0)
+            return "Queue complete.";
+
+        var activeId = Retainers.GetActive()?.Id;
+
+        var next = outstanding
+            .SelectMany(e => _tally.RemainingElsewhere(e.Key, activeId))
+            .OrderBy(h => h.SortIndex)
+            .FirstOrDefault();
+
+        var summary = $"{outstanding.Count} item(s) outstanding, {outstanding.Sum(e => e.Remaining):N0} unit(s)";
+
+        return next is null
+            ? $"{summary} — open a retainer holding them."
+            : $"{summary} — next in {next.RetainerName}.";
     }
 
     private void SetStatus(string status)
@@ -297,16 +354,10 @@ public sealed class BuddysSlavesModule : ModuleBase
 
         DrawTotals(open);
         DrawTakePanel(open);
+        DrawQueue(open);
 
         ImGui.Spacing();
         ImGui.TextUnformatted(_status);
-
-        if (!IsWithdrawing)
-            return;
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Cancel"))
-            StopWithdrawing("Cancelled.");
     }
 
     private void DrawScanState(bool open, RetainerInfo? active)
@@ -347,8 +398,7 @@ public sealed class BuddysSlavesModule : ModuleBase
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
 
-                var isActive = active?.Id == retainer.Id && open;
-                if (isActive)
+                if (active?.Id == retainer.Id && open)
                     ImGui.TextColored(new Vector4(0.4f, 0.9f, 0.4f, 1f), $"{retainer.Name} (open)");
                 else
                     ImGui.TextUnformatted(retainer.Name);
@@ -374,6 +424,19 @@ public sealed class BuddysSlavesModule : ModuleBase
             _tally.Refresh();
             SetStatus("Tally reset.");
         }
+
+        ImGui.SameLine();
+        var queueMode = _settings.QueueMode;
+        if (ImGui.Checkbox("Queue mode", ref queueMode))
+        {
+            _settings.QueueMode = queueMode;
+            Config.Save();
+        }
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(
+                "Build a shopping list of several items, then run it.\n" +
+                "Each retainer is drained of everything on the list before moving to the next.");
     }
 
     private void DrawTotals(bool open)
@@ -400,15 +463,17 @@ public sealed class BuddysSlavesModule : ModuleBase
 
         if (!ImGui.BeginTable("##slavetally", 4,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY,
-                new Vector2(0, 300)))
+                new Vector2(0, 260)))
             return;
 
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 70);
         ImGui.TableSetupColumn("Where", ImGuiTableColumnFlags.WidthFixed, 130);
-        ImGui.TableSetupColumn("##take", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("##take", ImGuiTableColumnFlags.WidthFixed, 80);
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
+
+        var label = _settings.QueueMode ? "Add" : "Take X";
 
         foreach (var item in filtered)
         {
@@ -433,11 +498,10 @@ public sealed class BuddysSlavesModule : ModuleBase
             ImGui.TableNextColumn();
             using var id = ImRaii.PushId((int)item.Key.ItemId + (item.Key.HighQuality ? 1 << 24 : 0));
 
-            using (ImRaii.Disabled(!open || IsWithdrawing))
+            // Queue mode lets items be added while a run is in progress; direct mode does not.
+            using (ImRaii.Disabled(!_settings.QueueMode && (_running || !open)))
             {
-                // Only records the selection. Opening an ImGui popup from inside a table cell puts
-                // it on a different id stack than the code that draws it, so it never appeared.
-                if (ImGui.SmallButton("Take X") && open && !IsWithdrawing)
+                if (ImGui.SmallButton(label))
                 {
                     _promptItem = item;
                     _promptAmount = _settings.LastAmount <= 0
@@ -451,13 +515,12 @@ public sealed class BuddysSlavesModule : ModuleBase
     }
 
     /// <summary>
-    /// The "how many?" panel shown after picking an item.
+    /// The amount panel shown after picking an item.
     /// </summary>
     /// <remarks>
-    /// Drawn inline rather than as an ImGui popup. Popups are keyed by the id stack at the moment
-    /// they are opened, and opening one from inside a table cell — under a pushed per-row id — does
-    /// not match a <c>BeginPopup</c> made outside the table, so the menu never rendered. An inline
-    /// panel has no id-scope coupling and is always visible.
+    /// Inline rather than an ImGui popup: popups are keyed by the id stack at the moment they are
+    /// opened, so one opened from inside a table cell never matches a <c>BeginPopup</c> outside the
+    /// table and silently fails to render.
     /// </remarks>
     private void DrawTakePanel(bool open)
     {
@@ -465,13 +528,14 @@ public sealed class BuddysSlavesModule : ModuleBase
             return;
 
         var item = _promptItem;
+        var queueMode = _settings.QueueMode;
 
         ImGui.Spacing();
-        using var child = ImRaii.Child("##takepanel", new Vector2(0, 128), true);
+        using var child = ImRaii.Child("##takepanel", new Vector2(0, 124), true);
         if (!child)
             return;
 
-        ImGui.TextUnformatted(item.Key.HighQuality ? $"Take {item.Name} (HQ)" : $"Take {item.Name}");
+        ImGui.TextUnformatted(item.Key.HighQuality ? $"{item.Name} (HQ)" : item.Name);
         ImGui.TextDisabled($"{item.Quantity:N0} available across {item.Holdings.Count} retainer(s)");
         ImGui.Separator();
         ImGui.Spacing();
@@ -486,33 +550,150 @@ public sealed class BuddysSlavesModule : ModuleBase
 
         ImGui.Spacing();
 
-        using (ImRaii.Disabled(!open || IsWithdrawing))
+        var canAct = queueMode || (open && !_running);
+
+        using (ImRaii.Disabled(!canAct))
         {
-            if (ImGui.Button("Take", new Vector2(110, 0)) && open && !IsWithdrawing)
+            if (ImGui.Button(queueMode ? "Add to list" : "Take", new Vector2(120, 0)) && canAct)
             {
                 _settings.LastAmount = _promptAmount;
                 Config.Save();
-                StartWithdrawing(item, _promptAmount);
+
+                if (queueMode)
+                {
+                    AddToQueue(item, _promptAmount);
+                }
+                else
+                {
+                    // A direct take is just a one-entry queue.
+                    _queue.Clear();
+                    AddToQueue(item, _promptAmount);
+                    StartQueue();
+                }
+
                 _promptItem = null;
                 return;
             }
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110, 0)))
+        if (ImGui.Button("Cancel", new Vector2(120, 0)))
         {
             _promptItem = null;
             return;
         }
 
-        if (!open)
+        if (!queueMode && !open)
         {
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(1f, 0.6f, 0.3f, 1f), "Open a retainer first.");
         }
+    }
+
+    private void DrawQueue(bool open)
+    {
+        if (!_settings.QueueMode && _queue.Count == 0)
+            return;
 
         ImGui.Spacing();
-        ImGui.TextDisabled("Taken from retainers top to bottom.");
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.TextUnformatted($"Shopping list ({_queue.Count(e => e.Done)}/{_queue.Count} complete)");
+
+        if (_queue.Count == 0)
+        {
+            ImGui.TextDisabled("Empty — add items from the list above.");
+            return;
+        }
+
+        if (ImGui.BeginTable("##queue", 4,
+                ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY,
+                new Vector2(0, 160)))
+        {
+            ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Progress", ImGuiTableColumnFlags.WidthFixed, 110);
+            ImGui.TableSetupColumn("State", ImGuiTableColumnFlags.WidthFixed, 130);
+            ImGui.TableSetupColumn("##rm", ImGuiTableColumnFlags.WidthFixed, 30);
+            ImGui.TableSetupScrollFreeze(0, 1);
+            ImGui.TableHeadersRow();
+
+            var activeId = Retainers.GetActive()?.Id;
+            QueueEntry? remove = null;
+
+            foreach (var entry in _queue)
+            {
+                ImGui.TableNextRow();
+
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.Key.HighQuality ? $"{entry.Name} (HQ)" : entry.Name);
+
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{entry.Taken:N0} / {entry.Requested:N0}");
+
+                ImGui.TableNextColumn();
+                if (entry.Done)
+                {
+                    ImGui.TextColored(new Vector4(0.4f, 0.9f, 0.4f, 1f), "done");
+                }
+                else if (_running && ReferenceEquals(entry, _current))
+                {
+                    ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), "taking…");
+                }
+                else if (_exhaustedHere.Contains(entry.Key))
+                {
+                    var elsewhere = _tally.RemainingElsewhere(entry.Key, activeId).FirstOrDefault();
+                    ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f),
+                        elsewhere is null ? "none left" : elsewhere.RetainerName);
+                }
+                else
+                {
+                    ImGui.TextDisabled(_running ? "queued" : "waiting");
+                }
+
+                ImGui.TableNextColumn();
+                using var id = ImRaii.PushId((int)entry.Key.ItemId + (entry.Key.HighQuality ? 1 << 24 : 0));
+                if (ImGui.SmallButton("x"))
+                    remove = entry;
+            }
+
+            ImGui.EndTable();
+
+            if (remove is not null)
+                _queue.Remove(remove);
+        }
+
+        ImGui.Spacing();
+
+        if (_running)
+        {
+            if (ImGui.Button("Stop", new Vector2(120, 0)))
+                StopQueue("Stopped.");
+        }
+        else
+        {
+            using (ImRaii.Disabled(!open || _queue.All(e => e.Done)))
+            {
+                if (ImGui.Button("Run list", new Vector2(120, 0)) && open)
+                    StartQueue();
+            }
+
+            if (!open)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(1f, 0.6f, 0.3f, 1f), "Open a retainer to start.");
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Clear list", new Vector2(120, 0)))
+        {
+            if (_running)
+                StopQueue("Stopped.");
+
+            _queue.Clear();
+            SetStatus("List cleared.");
+        }
     }
 
     public override void DrawSettings()
@@ -531,15 +712,12 @@ public sealed class BuddysSlavesModule : ModuleBase
             Config.Save();
         }
 
-        var stop = _settings.StopWhenNoneLeft;
-        if (ImGui.Checkbox("Stop when no scanned retainer holds any more", ref stop))
+        var queueMode = _settings.QueueMode;
+        if (ImGui.Checkbox("Queue mode", ref queueMode))
         {
-            _settings.StopWhenNoneLeft = stop;
+            _settings.QueueMode = queueMode;
             Config.Save();
         }
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Off keeps the request waiting so you can open an unscanned retainer.");
 
         var announce = _settings.AnnounceInChat;
         if (ImGui.Checkbox("Report the result in chat", ref announce))
@@ -558,6 +736,10 @@ public sealed class BuddysSlavesModule : ModuleBase
             var totals = _tally.Totals;
             Print($"{totals.Count} distinct item(s), {totals.Sum(t => t.Quantity):N0} units across " +
                   $"{_tally.ScannedCount} scanned retainer(s).");
+
+            if (_queue.Count > 0)
+                Print($"List: {_queue.Count(e => e.Done)}/{_queue.Count} complete.");
+
             return true;
         }
 
@@ -565,11 +747,21 @@ public sealed class BuddysSlavesModule : ModuleBase
 
         switch (split[0].ToLowerInvariant())
         {
+            case "run":
+            case "start":
+                StartQueue();
+                return true;
+
             case "stop":
-                if (IsWithdrawing)
-                    StopWithdrawing("Stopped.");
+                if (_running)
+                    StopQueue("Stopped.");
                 else
                     Print("Not running.");
+                return true;
+
+            case "clear":
+                _queue.Clear();
+                Print("List cleared.");
                 return true;
 
             case "rescan":
@@ -623,7 +815,8 @@ public sealed class BuddysSlavesConfig : IModuleConfig
 
     public int ScanIntervalMs { get; set; } = 400;
 
-    public bool StopWhenNoneLeft { get; set; } = false;
+    /// <summary>Build a multi-item shopping list instead of taking one item immediately.</summary>
+    public bool QueueMode { get; set; } = false;
 
     public bool AnnounceInChat { get; set; } = true;
 
