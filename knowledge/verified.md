@@ -214,7 +214,14 @@ Confirmed by reflecting over the live `FFXIVClientStructs.dll`.
 | Addon names | **`InventoryRetainer`** and **`InventoryRetainerLarge`** (expanded view) |
 
 **One retainer is readable at a time** — only the retainer open at a bell has loaded containers, so
-the tally accumulates per retainer across visits, exactly like the FC chest compartments.
+the tally accumulates per retainer across visits, exactly like the FC chest compartments. Unlike the
+chest, *all* of a retainer's pages load together, so one visit captures that retainer completely.
+
+⚠️ **`GetActiveRetainer()` reports a retainer while the bell list is merely being browsed**, not
+only while an inventory is open. Anything keyed on "the active retainer changed" will therefore fire
+during ordinary list navigation — dropping cached snapshots there wiped every previously scanned
+retainer. Gate reads on `IsInventoryOpen()`, and let a re-read replace a snapshot rather than
+invalidating ahead of time.
 
 **A withdrawal request outlives a single retainer.** "Take 500" pulls what it can from the open
 retainer, then *pauses* rather than failing, and resumes automatically when the next retainer is
@@ -228,6 +235,20 @@ the stack size, so a request is never overshot. The same `QuantityPrompt` helper
 the quantity prompt the same way the FC chest does is **assumed, not yet confirmed in game**. If it
 moves whole stacks without prompting, a partial request could overshoot by up to one stack — the
 verify step counts what actually arrived, so the report stays truthful either way.
+
+---
+
+## ImGui: popups opened from inside a table never render
+
+`ImGui.OpenPopup(id)` and `ImGui.BeginPopup(id)` are matched on the **id stack at the time of each
+call**, not on the string alone. Opening a popup from inside a table cell — under a per-row
+`ImRaii.PushId` — and then calling `BeginPopup` after `EndTable` puts the two on different id
+stacks. The popup opens and nothing ever draws it: no window, no error, no log line.
+
+For a per-row "prompt for a value" affordance, the row button should only **record the selection**,
+with an inline panel drawn afterwards from the selected item. No id-scope coupling, and it cannot
+silently fail to appear. Reach for a popup only when the open and begin calls are provably at the
+same scope.
 
 ---
 

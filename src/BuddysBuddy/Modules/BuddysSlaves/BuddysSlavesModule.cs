@@ -103,12 +103,12 @@ public sealed class BuddysSlavesModule : ModuleBase
             var active = Retainers.GetActive();
             var activeId = active?.Id ?? 0;
 
-            // A different retainer opening invalidates its cached contents.
+            // Deliberately does NOT drop the newly active retainer's snapshot. The game reports an
+            // active retainer while the bell list is merely being browsed, so invalidating on every
+            // switch wiped retainers that had already been scanned. Refresh() replaces a snapshot
+            // whenever the contents actually differ, which is the re-read that was wanted.
             if (activeId != _lastActiveId)
             {
-                if (activeId != 0 && _settings.RescanOnOpen)
-                    _tally.Invalidate(activeId);
-
                 _lastActiveId = activeId;
 
                 // A paused request can resume the moment a new retainer is available.
@@ -151,10 +151,8 @@ public sealed class BuddysSlavesModule : ModuleBase
         _step = Step.Waiting;
         SetStatus(reason);
 
-        var active = Retainers.GetActive();
-        if (active is not null)
-            _tally.Invalidate(active.Value.Id);
-
+        // Refresh alone is enough: the retainer we pulled from is still open, and its contents have
+        // changed, so the snapshot is replaced. Invalidating here would lose it if it just closed.
         _tally.Refresh();
 
         if (_settings.AnnounceInChat)
@@ -298,7 +296,7 @@ public sealed class BuddysSlavesModule : ModuleBase
         ImGui.Spacing();
 
         DrawTotals(open);
-        DrawTakePopup();
+        DrawTakePanel(open);
 
         ImGui.Spacing();
         ImGui.TextUnformatted(_status);
@@ -437,11 +435,14 @@ public sealed class BuddysSlavesModule : ModuleBase
 
             using (ImRaii.Disabled(!open || IsWithdrawing))
             {
+                // Only records the selection. Opening an ImGui popup from inside a table cell puts
+                // it on a different id stack than the code that draws it, so it never appeared.
                 if (ImGui.SmallButton("Take X") && open && !IsWithdrawing)
                 {
                     _promptItem = item;
-                    _promptAmount = Math.Min(item.Quantity, _settings.LastAmount <= 0 ? item.Quantity : _settings.LastAmount);
-                    ImGui.OpenPopup("##takex");
+                    _promptAmount = _settings.LastAmount <= 0
+                        ? item.Quantity
+                        : Math.Min(item.Quantity, _settings.LastAmount);
                 }
             }
         }
@@ -449,52 +450,69 @@ public sealed class BuddysSlavesModule : ModuleBase
         ImGui.EndTable();
     }
 
-    private void DrawTakePopup()
+    /// <summary>
+    /// The "how many?" panel shown after picking an item.
+    /// </summary>
+    /// <remarks>
+    /// Drawn inline rather than as an ImGui popup. Popups are keyed by the id stack at the moment
+    /// they are opened, and opening one from inside a table cell — under a pushed per-row id — does
+    /// not match a <c>BeginPopup</c> made outside the table, so the menu never rendered. An inline
+    /// panel has no id-scope coupling and is always visible.
+    /// </remarks>
+    private void DrawTakePanel(bool open)
     {
         if (_promptItem is null)
             return;
 
-        // The popup is opened from inside the table, so it is drawn against the same id stack.
-        using var id = ImRaii.PushId((int)_promptItem.Key.ItemId + (_promptItem.Key.HighQuality ? 1 << 24 : 0));
-
-        if (!ImGui.BeginPopup("##takex"))
-            return;
-
         var item = _promptItem;
 
-        ImGui.TextUnformatted(item.Key.HighQuality ? $"{item.Name} (HQ)" : item.Name);
-        ImGui.TextDisabled($"{item.Quantity:N0} across {item.Holdings.Count} retainer(s)");
-        ImGui.Separator();
+        ImGui.Spacing();
+        using var child = ImRaii.Child("##takepanel", new Vector2(0, 128), true);
+        if (!child)
+            return;
 
-        ImGui.SetNextItemWidth(140);
+        ImGui.TextUnformatted(item.Key.HighQuality ? $"Take {item.Name} (HQ)" : $"Take {item.Name}");
+        ImGui.TextDisabled($"{item.Quantity:N0} available across {item.Holdings.Count} retainer(s)");
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.SetNextItemWidth(160);
         ImGui.InputInt("Amount", ref _promptAmount);
         _promptAmount = Math.Clamp(_promptAmount, 1, Math.Max(1, item.Quantity));
 
-        ImGui.Spacing();
-        if (ImGui.Button("All"))
+        ImGui.SameLine();
+        if (ImGui.SmallButton("All"))
             _promptAmount = item.Quantity;
 
-        ImGui.SameLine();
-        if (ImGui.Button("Take"))
+        ImGui.Spacing();
+
+        using (ImRaii.Disabled(!open || IsWithdrawing))
         {
-            _settings.LastAmount = _promptAmount;
-            Config.Save();
-            StartWithdrawing(item, _promptAmount);
-            _promptItem = null;
-            ImGui.CloseCurrentPopup();
+            if (ImGui.Button("Take", new Vector2(110, 0)) && open && !IsWithdrawing)
+            {
+                _settings.LastAmount = _promptAmount;
+                Config.Save();
+                StartWithdrawing(item, _promptAmount);
+                _promptItem = null;
+                return;
+            }
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        if (ImGui.Button("Cancel", new Vector2(110, 0)))
         {
             _promptItem = null;
-            ImGui.CloseCurrentPopup();
+            return;
+        }
+
+        if (!open)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, 0.6f, 0.3f, 1f), "Open a retainer first.");
         }
 
         ImGui.Spacing();
         ImGui.TextDisabled("Taken from retainers top to bottom.");
-
-        ImGui.EndPopup();
     }
 
     public override void DrawSettings()
@@ -510,13 +528,6 @@ public sealed class BuddysSlavesModule : ModuleBase
         if (ImGui.SliderInt("Rescan interval (ms)", ref scan, 100, 2000))
         {
             _settings.ScanIntervalMs = scan;
-            Config.Save();
-        }
-
-        var rescan = _settings.RescanOnOpen;
-        if (ImGui.Checkbox("Re-read a retainer each time it is opened", ref rescan))
-        {
-            _settings.RescanOnOpen = rescan;
             Config.Save();
         }
 
@@ -611,8 +622,6 @@ public sealed class BuddysSlavesConfig : IModuleConfig
     public int DelayMs { get; set; } = 300;
 
     public int ScanIntervalMs { get; set; } = 400;
-
-    public bool RescanOnOpen { get; set; } = true;
 
     public bool StopWhenNoneLeft { get; set; } = false;
 

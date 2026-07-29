@@ -191,14 +191,6 @@ internal sealed class RetainerTally
                     .ToList();
     }
 
-    /// <summary>Drops one retainer's snapshot so it is re-read next time it is open.</summary>
-    public void Invalidate(ulong retainerId)
-    {
-        _snapshots.Remove(retainerId);
-        _scannedAt.Remove(retainerId);
-        _totals = null;
-    }
-
     public void Clear()
     {
         _snapshots.Clear();
