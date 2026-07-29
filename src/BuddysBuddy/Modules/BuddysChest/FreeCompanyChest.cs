@@ -63,6 +63,18 @@ internal static unsafe class FreeCompanyChest
         _ => page.ToString(),
     };
 
+    /// <summary>Compartment order for display and withdrawal: pages 1-5, then crystals.</summary>
+    public static int PageOrder(InventoryType page) => page switch
+    {
+        InventoryType.FreeCompanyPage1 => 0,
+        InventoryType.FreeCompanyPage2 => 1,
+        InventoryType.FreeCompanyPage3 => 2,
+        InventoryType.FreeCompanyPage4 => 3,
+        InventoryType.FreeCompanyPage5 => 4,
+        InventoryType.FreeCompanyCrystals => 5,
+        _ => 99,
+    };
+
     /// <summary>True while the chest window is on screen.</summary>
     public static bool IsWindowOpen()
     {
@@ -70,16 +82,20 @@ internal static unsafe class FreeCompanyChest
         return !addon.IsNull && addon.IsReady && addon.IsVisible;
     }
 
-    /// <summary>Asks the game to open the chest. It only succeeds near an FC chest or estate.</summary>
-    public static void RequestOpenWindow()
+    /// <summary>
+    /// True when the chest is genuinely open and active — the window is up and its agent is live.
+    /// </summary>
+    /// <remarks>
+    /// Withdrawal is gated on this. The chest must already be open and targeted; this plugin never
+    /// opens it, by design.
+    /// </remarks>
+    public static bool IsChestReady()
     {
-        var module = AgentModule.Instance();
-        if (module is null)
-            return;
+        if (!IsWindowOpen())
+            return false;
 
-        var agent = module->GetAgentByInternalId(AgentId.FreeCompanyChest);
-        if (agent is not null && !agent->IsAgentActive())
-            agent->Show();
+        var agent = AgentFreeCompanyChest.Instance();
+        return agent is not null && agent->IsAgentActive();
     }
 
     /// <summary>
@@ -203,21 +219,52 @@ internal static unsafe class FreeCompanyChest
         return manager is null ? 0 : manager->GetFreeCompanyGil();
     }
 
+    /// <summary>Units of an item already in the player's bags — used to confirm a withdrawal landed.</summary>
+    public static int CountInPlayerInventory(uint itemId, bool highQuality)
+    {
+        var manager = InventoryManager.Instance();
+        return manager is null
+            ? 0
+            : manager->GetInventoryItemCount(itemId, highQuality, checkEquipped: false, checkArmory: false, 0);
+    }
+}
+
+/// <summary>
+/// The "how many?" dialog the game raises when taking a stack out of the chest.
+/// </summary>
+/// <remarks>
+/// Taking from the free company chest always raises this prompt — a move on its own never completes
+/// the withdrawal, which is why the first version appeared to do nothing. The prompt already
+/// defaults to the full stack, so confirming it is all that is required.
+/// </remarks>
+internal static unsafe class QuantityPrompt
+{
+    public const string AddonName = "InputNumeric";
+
+    public static bool IsOpen()
+    {
+        var addon = DalamudServices.GameGui.GetAddonByName(AddonName, 1);
+        return !addon.IsNull && addon.IsReady && addon.IsVisible;
+    }
+
     /// <summary>
-    /// Asks the chest window to switch to a compartment so the server sends its contents.
+    /// Confirms the prompt at <paramref name="quantity"/>, which should be the whole stack.
     /// </summary>
     /// <remarks>
-    /// UNVERIFIED: the tab list is assumed to be a plain indexed callback. If it turns out to be
-    /// wrong the worst case is that nothing happens and the compartment stays unscanned — the
-    /// tally then simply reports it as not yet seen, and clicking the tab by hand still works.
+    /// Fires the addon's callback with a single integer and <c>close: true</c>, the same path the
+    /// OK button takes. The dialog defaults to the maximum, so this matches what is on screen.
     /// </remarks>
-    public static bool RequestPage(int tabIndex)
+    public static bool Confirm(int quantity)
     {
         var addon = DalamudServices.GameGui.GetAddonByName<AtkUnitBase>(AddonName, 1);
         if (addon is null || !addon->IsVisible)
             return false;
 
-        return addon->FireCallbackInt(tabIndex);
+        var value = stackalloc AtkValue[1];
+        value->Type = AtkValueType.Int;
+        value->Int = quantity;
+
+        return addon->FireCallback(1, value, true);
     }
 }
 

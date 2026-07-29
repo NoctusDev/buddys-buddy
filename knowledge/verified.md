@@ -164,17 +164,35 @@ report `IsLoaded == false` — the "loading" state visible in the UI. A single p
 never see the whole chest. `ChestTally` keeps a per-compartment snapshot, refreshes whichever one is
 loaded, and reports how many have been seen so a partial tally is *visibly* partial.
 
-**`MoveItemInChest` takes no quantity argument**, which is what makes "take every unit of this item"
-possible without driving the game's quantity prompt. The prompt is a UI-layer thing; this is the
-function the UI calls underneath. ⚠️ Believed but **not yet confirmed in game** — if a quantity
-prompt does appear, the withdrawal will stall out and stop safely rather than misbehave.
+**A move alone does NOT withdraw anything — the quantity prompt must be confirmed.** Tested in game
+2026-07-28. `MoveItemInChest` takes no quantity argument, and I wrongly assumed that meant it moved
+whole stacks directly. It does not: the game raises the `InputNumeric` prompt and nothing leaves the
+chest until that prompt is confirmed. The first build appeared to do nothing for exactly this reason.
 
-**Withdrawal only reaches loaded compartments.** Stacks in unopened compartments cannot be moved;
-`UnreachableQuantity` reports them so the shortfall is explained rather than silent.
+The prompt **already defaults to the full stack**, so confirming is all that is needed:
 
-⚠️ **`RequestPage` / tab switching is unverified.** `FireCallbackInt(tabIndex)` is a reasonable
-guess at the compartment tab list, not a confirmed signature. It is behind an opt-in setting; if it
-does nothing, clicking the tabs by hand still completes the tally.
+```csharp
+var value = stackalloc AtkValue[1];
+value->Type = AtkValueType.Int;      // note: AtkValueType, not ValueType
+value->Int = quantity;
+addon->FireCallback(1, value, true); // close: true — the OK button's path
+```
+
+**Confirm each stack actually arrived.** `InventoryManager.GetInventoryItemCount(itemId, isHq,
+checkEquipped: false, checkArmory: false, 0)` before and after gives proof of delivery. Neither the
+move nor the callback returns anything meaningful, so inventory count is the only real signal — the
+withdrawal is a take → confirm → verify cycle per stack, and a stack is only counted once its units
+are present in the player's bags.
+
+**Withdrawal only reaches loaded compartments**, and works through them in tab order: pages 1-5,
+then crystals. Stacks in unopened compartments cannot be moved; `UnreachableQuantity` reports them
+so the shortfall is explained rather than silent.
+
+**The chest is never opened programmatically.** Withdrawal is gated on `IsChestReady()` — window
+visible *and* agent active — so it only ever acts on a chest the player already opened and targeted.
+
+Compartment tab switching was removed: compartments load correctly when clicked by hand, so the
+unverified `FireCallbackInt(tabIndex)` guess was not worth keeping.
 
 ---
 

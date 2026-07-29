@@ -135,8 +135,10 @@ internal sealed class ChestTally
             }
         }
 
+        // Ordered by compartment (1-5, then crystals) so the list mirrors the chest's own tabs.
         return map.Values
-                  .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                  .OrderBy(t => t.Pages.Count == 0 ? 99 : FreeCompanyChest.PageOrder(t.Pages[0]))
+                  .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
                   .ThenBy(t => t.Key.HighQuality)
                   .ToList();
     }
@@ -152,12 +154,13 @@ internal sealed class ChestTally
     {
         var found = new List<ChestSlot>();
 
-        foreach (var page in FreeCompanyChest.AllPages)
+        // Compartment order, then slot order, so withdrawal works tab by tab: 1-5, then crystals.
+        foreach (var page in FreeCompanyChest.AllPages.OrderBy(FreeCompanyChest.PageOrder))
         {
             if (!FreeCompanyChest.IsPageLoaded(page))
                 continue;
 
-            foreach (var slot in FreeCompanyChest.ReadPage(page))
+            foreach (var slot in FreeCompanyChest.ReadPage(page).OrderBy(s => s.Slot))
                 if (slot.ItemId == key.ItemId && slot.HighQuality == key.HighQuality)
                     found.Add(slot);
         }

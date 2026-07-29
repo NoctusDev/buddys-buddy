@@ -29,17 +29,37 @@ public sealed class BuddysChestModule : ModuleBase
 
     public override int Order => 20;
 
-    private const int StallLimit = 5;
+    /// <summary>Where a single stack is in its take-confirm-verify cycle.</summary>
+    private enum Step
+    {
+        /// <summary>Choose the next stack and issue the move.</summary>
+        Take,
+
+        /// <summary>Wait for the quantity prompt, then confirm it at the full stack.</summary>
+        Confirm,
+
+        /// <summary>Wait until the units actually appear in the player's inventory.</summary>
+        Verify,
+    }
+
+    private static readonly TimeSpan PromptTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan VerifyTimeout = TimeSpan.FromSeconds(5);
 
     private BuddysChestConfig _settings = null!;
     private readonly ChestTally _tally = new();
 
     private ItemKey? _withdrawing;
     private string _withdrawName = string.Empty;
+    private Step _step = Step.Take;
     private DateTime _nextStepAt;
+    private DateTime _stepDeadline;
+
+    // The stack currently being taken, and the inventory count before it was requested.
+    private int _pendingQuantity;
+    private int _countBefore;
+
     private int _movedThisRun;
-    private int _lastRemaining = -1;
-    private int _stalls;
+    private int _unitsThisRun;
     private string _status = "Idle.";
 
     private string _filter = string.Empty;
@@ -107,17 +127,18 @@ public sealed class BuddysChestModule : ModuleBase
         if (IsWithdrawing)
             return;
 
-        if (!FreeCompanyChest.IsWindowOpen())
+        // The chest must already be open and targeted; this module never opens it.
+        if (!FreeCompanyChest.IsChestReady())
         {
-            SetStatus("Open the free company chest first.");
+            SetStatus("Open and target the free company chest first.");
             return;
         }
 
         _withdrawing = item.Key;
         _withdrawName = item.Name;
+        _step = Step.Take;
         _movedThisRun = 0;
-        _lastRemaining = -1;
-        _stalls = 0;
+        _unitsThisRun = 0;
         _nextStepAt = DateTime.UtcNow;
         SetStatus($"Taking {item.Name}…");
     }
@@ -146,13 +167,43 @@ public sealed class BuddysChestModule : ModuleBase
             ? $" {stranded} more in compartments that are not open — visit them and run it again."
             : string.Empty;
 
-        Print($"{reason} Took {_movedThisRun} stack(s) of {_withdrawName}.{note}");
+        Print($"{reason} Took {_unitsThisRun:N0} unit(s) of {_withdrawName} in {_movedThisRun} stack(s).{note}");
     }
 
+    /// <summary>
+    /// One step of the take-confirm-verify cycle for the current stack.
+    /// </summary>
+    /// <remarks>
+    /// Each stack is only counted once its units are actually present in the player's inventory.
+    /// The move alone proves nothing: the game raises a quantity prompt, and until that prompt is
+    /// confirmed nothing leaves the chest.
+    /// </remarks>
     private void StepWithdrawing()
     {
         var key = _withdrawing!.Value;
 
+        if (!FreeCompanyChest.IsChestReady())
+        {
+            StopWithdrawing("Stopped — the chest is no longer open.");
+            return;
+        }
+
+        switch (_step)
+        {
+            case Step.Take:
+                StepTake(key);
+                break;
+            case Step.Confirm:
+                StepConfirm();
+                break;
+            case Step.Verify:
+                StepVerify(key);
+                break;
+        }
+    }
+
+    private void StepTake(ItemKey key)
+    {
         var stacks = ChestTally.FindLiveStacks(key);
         if (stacks.Count == 0)
         {
@@ -160,37 +211,78 @@ public sealed class BuddysChestModule : ModuleBase
             return;
         }
 
-        // Progress is measured by stacks disappearing, not by the move call, which returns nothing.
-        if (_lastRemaining >= 0 && stacks.Count >= _lastRemaining)
-        {
-            if (++_stalls >= StallLimit)
-            {
-                StopWithdrawing($"Stopped — {stacks.Count} stack(s) of {_withdrawName} would not move.");
-                return;
-            }
-        }
-        else
-        {
-            _stalls = 0;
-        }
-
-        _lastRemaining = stacks.Count;
-
         if (!FreeCompanyChest.TryFindFreePlayerSlot(out var dstBag, out var dstSlot))
         {
             StopWithdrawing($"Stopped — inventory is full, {stacks.Count} stack(s) left.");
             return;
         }
 
+        // Stacks come back ordered by compartment (1-5, then crystals) and then slot.
         var source = stacks[0];
+
+        _pendingQuantity = source.Quantity;
+        _countBefore = FreeCompanyChest.CountInPlayerInventory(key.ItemId, key.HighQuality);
+
         if (!FreeCompanyChest.MoveOut(source.Page, source.Slot, dstBag, dstSlot))
         {
             StopWithdrawing("Stopped — the chest agent went away.");
             return;
         }
 
-        _movedThisRun++;
-        SetStatus($"Taking {_withdrawName} — {_movedThisRun} stack(s) moved, {stacks.Count - 1} to go…");
+        _step = Step.Confirm;
+        _stepDeadline = DateTime.UtcNow + PromptTimeout;
+        SetStatus($"{_withdrawName}: confirming a stack of {_pendingQuantity}…");
+    }
+
+    private void StepConfirm()
+    {
+        if (QuantityPrompt.IsOpen())
+        {
+            // The prompt already defaults to the full stack, so this just presses OK.
+            if (QuantityPrompt.Confirm(_pendingQuantity))
+            {
+                _step = Step.Verify;
+                _stepDeadline = DateTime.UtcNow + VerifyTimeout;
+            }
+
+            return;
+        }
+
+        // No prompt appeared. Either it has not shown yet, or this move did not need one —
+        // verification settles which, so fall through once the wait is up.
+        if (DateTime.UtcNow <= _stepDeadline)
+            return;
+
+        _step = Step.Verify;
+        _stepDeadline = DateTime.UtcNow + VerifyTimeout;
+    }
+
+    private void StepVerify(ItemKey key)
+    {
+        var now = FreeCompanyChest.CountInPlayerInventory(key.ItemId, key.HighQuality);
+        var gained = now - _countBefore;
+
+        if (gained >= _pendingQuantity)
+        {
+            _movedThisRun++;
+            _unitsThisRun += gained;
+            _step = Step.Take;
+            SetStatus($"{_withdrawName}: {_unitsThisRun:N0} unit(s) taken in {_movedThisRun} stack(s)…");
+            return;
+        }
+
+        // A partial arrival still counts as progress; take what landed and move on.
+        if (gained > 0 && DateTime.UtcNow > _stepDeadline)
+        {
+            _movedThisRun++;
+            _unitsThisRun += gained;
+            _step = Step.Take;
+            Log.Warning("Expected {Expected} of {Item} but {Gained} arrived.", _pendingQuantity, _withdrawName, gained);
+            return;
+        }
+
+        if (DateTime.UtcNow > _stepDeadline)
+            StopWithdrawing($"Stopped — a stack of {_withdrawName} never arrived in your inventory.");
     }
 
     private void SetStatus(string status)
@@ -203,18 +295,14 @@ public sealed class BuddysChestModule : ModuleBase
 
     public override void Draw()
     {
-        var open = FreeCompanyChest.IsWindowOpen();
+        var open = FreeCompanyChest.IsChestReady();
 
         if (!open)
         {
             ImGui.TextColored(new Vector4(1f, 0.6f, 0.3f, 1f), "The free company chest is not open.");
             ImGui.TextWrapped(
-                "Open it at an FC chest or estate. Buddy's Chest tallies each compartment as you " +
-                "view it — the counts below are whatever has been seen so far.");
-            ImGui.Spacing();
-
-            if (ImGui.Button("Try to open the chest"))
-                FreeCompanyChest.RequestOpenWindow();
+                "Open and target it yourself at an FC chest or estate. Buddy's Chest tallies each " +
+                "compartment as you view it — the counts below are whatever has been seen so far.");
 
             ImGui.Spacing();
             ImGui.Separator();
@@ -269,23 +357,6 @@ public sealed class BuddysChestModule : ModuleBase
             }
         }
 
-        if (!_settings.EnableAutoTabSwitch)
-            return;
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(!open || _tally.IsComplete))
-        {
-            if (ImGui.Button("Load all compartments") && open)
-            {
-                for (var i = 0; i < FreeCompanyChest.ItemPages.Length; i++)
-                    FreeCompanyChest.RequestPage(i);
-
-                SetStatus("Asked the chest to cycle compartments.");
-            }
-        }
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Experimental and unverified. If nothing happens, click the tabs by hand.");
     }
 
     private void DrawTotals(bool open)
@@ -387,16 +458,6 @@ public sealed class BuddysChestModule : ModuleBase
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Contents can change between visits; clearing avoids showing stale counts.");
 
-        var auto = _settings.EnableAutoTabSwitch;
-        if (ImGui.Checkbox("Show the experimental \"load all compartments\" button", ref auto))
-        {
-            _settings.EnableAutoTabSwitch = auto;
-            Config.Save();
-        }
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Tries to switch compartment tabs for you. Unverified — may do nothing.");
-
         var announce = _settings.AnnounceInChat;
         if (ImGui.Checkbox("Report the result in chat", ref announce))
         {
@@ -493,8 +554,6 @@ public sealed class BuddysChestConfig : IModuleConfig
     public int ScanIntervalMs { get; set; } = 400;
 
     public bool ResetOnOpen { get; set; } = true;
-
-    public bool EnableAutoTabSwitch { get; set; } = false;
 
     public bool AnnounceInChat { get; set; } = true;
 }

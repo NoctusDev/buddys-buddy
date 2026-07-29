@@ -43,18 +43,21 @@ Not yet seen: Compartment 4, Compartment 5, Crystals
 
 Click through the remaining tabs and the count completes itself. HQ is tracked as a separate item.
 
-Search the list, then **Take all** on a row to pull every stack of that item into free inventory
-slots. Anything sitting in a compartment that is not currently open cannot be moved, and the
-shortfall is reported rather than silently dropped.
+The list is ordered by compartment, matching the chest's own tabs.
+
+Search it, then **Take all** on a row to pull every stack of that item into free inventory slots,
+working through compartments in order — 1 to 5, then crystals. **Take all** is only enabled when the
+chest is already open and targeted; the module never opens the chest itself.
+
+Each stack goes through take → confirm → verify: taking from a company chest raises the game's
+quantity prompt, which already defaults to the full stack, so it is confirmed as-is. A stack is only
+counted once its units are **confirmed present in your inventory** — the move and the prompt both
+report nothing useful, so inventory count is the only real proof of delivery. Anything in a
+compartment that is not open cannot be moved, and the shortfall is reported rather than dropped
+silently.
 
 `/bb chest` reports the tally · `/bb chest find <name>` looks an item up · `/bb chest rescan`
 clears it · `/bb chest stop` aborts a withdrawal.
-
-Two caveats, both flagged in [knowledge/verified.md](knowledge/verified.md): withdrawal uses the
-chest agent's own move function, which takes no quantity argument and so should bypass the game's
-quantity prompt — believed, not yet confirmed in game. And the optional "load all compartments"
-button guesses at the tab callback; it is off by default and clicking the tabs by hand always
-works.
 
 ## Requirements
 
