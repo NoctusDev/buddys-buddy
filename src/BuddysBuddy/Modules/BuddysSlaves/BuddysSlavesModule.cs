@@ -418,14 +418,6 @@ public sealed class BuddysSlavesModule : ModuleBase
         }
 
         ImGui.Spacing();
-        if (ImGui.Button("Rescan all"))
-        {
-            _tally.Clear();
-            _tally.Refresh();
-            SetStatus("Tally reset.");
-        }
-
-        ImGui.SameLine();
         var queueMode = _settings.QueueMode;
         if (ImGui.Checkbox("Queue mode", ref queueMode))
         {
@@ -725,6 +717,20 @@ public sealed class BuddysSlavesModule : ModuleBase
             _settings.AnnounceInChat = announce;
             Config.Save();
         }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        if (ImGui.Button("Rescan all retainers"))
+        {
+            _tally.Clear();
+            _tally.Refresh();
+            SetStatus("Tally reset.");
+        }
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Clears the tally. Each retainer is counted again next time it is opened.");
     }
 
     public override bool HandleCommand(string args)

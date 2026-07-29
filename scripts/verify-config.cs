@@ -92,10 +92,10 @@ try
     var fresh = Activator.CreateInstance(configType)!;
     var jobject = newtonsoft.GetType("Newtonsoft.Json.Linq.JObject")!;
     var blob = jobject.GetMethod("Parse", [typeof(string)])!
-        .Invoke(null, ["""{"GreetOnLoad":true,"Label":"buddy"}"""])!;
+        .Invoke(null, ["""{"QueueMode":true,"LastAmount":42}"""])!;
 
     var dict = configType.GetProperty("ModuleSettings")!.GetValue(fresh)!;
-    dict.GetType().GetMethod("set_Item")!.Invoke(dict, ["sample", blob]);
+    dict.GetType().GetMethod("set_Item")!.Invoke(dict, ["slaves", blob]);
 
     var json = (string)serialize.Invoke(null, [fresh, configType, settings])!;
     var back = deserialize.Invoke(null, [json, configType, settings]);
@@ -105,13 +105,13 @@ try
     var count = (int)restored.GetType().GetProperty("Count")!.GetValue(restored)!;
     Check(count == 1, "module settings survive the round-trip", $"{count} entry/entries");
 
-    var sample = configType.GetMethod("GetModuleConfig")!
-        .MakeGenericMethod(plugin.GetType("BuddysBuddy.Modules.Sample.SampleConfig")!)
-        .Invoke(back, ["sample"])!;
+    var slaves = configType.GetMethod("GetModuleConfig")!
+        .MakeGenericMethod(plugin.GetType("BuddysBuddy.Modules.BuddysSlaves.BuddysSlavesConfig")!)
+        .Invoke(back, ["slaves"])!;
 
-    var label = sample.GetType().GetProperty("Label")!.GetValue(sample) as string;
-    var greet = (bool)sample.GetType().GetProperty("GreetOnLoad")!.GetValue(sample)!;
-    Check(label == "buddy" && greet, "values read back correctly", $"Label=\"{label}\", GreetOnLoad={greet}");
+    var amount = (int)slaves.GetType().GetProperty("LastAmount")!.GetValue(slaves)!;
+    var queue = (bool)slaves.GetType().GetProperty("QueueMode")!.GetValue(slaves)!;
+    Check(amount == 42 && queue, "values read back correctly", $"LastAmount={amount}, QueueMode={queue}");
 }
 catch (TargetInvocationException ex)
 {

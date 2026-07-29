@@ -12,7 +12,6 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 | **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
 | **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
 | **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a shopping list of items, top to bottom |
-| Sample | `/bb sample` | Worked example — copy it to start a new module |
 
 ### Buddy's Bag
 
@@ -198,9 +197,10 @@ environment and what is known broken.
 
 ## Adding a module
 
-Copy [src/BuddysBuddy/Modules/Sample/](src/BuddysBuddy/Modules/Sample/) to
-`src/BuddysBuddy/Modules/<YourModule>/`, rename the class and change `InternalName`. That's it —
-modules are discovered by reflection at startup, so there is no registry to update.
+Add a folder under `src/BuddysBuddy/Modules/<YourModule>/` with a class deriving from
+[`ModuleBase`](src/BuddysBuddy/Modules/ModuleBase.cs). That's it — modules are discovered by
+reflection at startup, so there is no registry to update.
+[Buddy's Bag](src/BuddysBuddy/Modules/BuddysBag/) is the simplest one to read as a worked example.
 
 The smallest useful module:
 
