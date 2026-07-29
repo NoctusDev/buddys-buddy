@@ -140,6 +140,44 @@ call `.ToString()`. `Lumina.Excel.Sheets.Item` exposes `Name`, `RowId`, `StackSi
 
 ---
 
+## Free company chest API (Buddy's Chest)
+
+Confirmed by reflecting over the live `FFXIVClientStructs.dll`.
+
+| Symbol | Value / signature |
+| --- | --- |
+| `InventoryType.FreeCompanyPage1..5` | `20000`–`20004` |
+| `InventoryType.FreeCompanyCrystals` | `22001` |
+| `InventoryType.FreeCompanyGil` | `22000` (use `InventoryManager.GetFreeCompanyGil()`) |
+| `AgentId.FreeCompanyChest` | `85` |
+| `AgentFreeCompanyChest.Instance()` | |
+| `AgentFreeCompanyChest.MoveItemInChest(InventoryType src, uint srcSlot, InventoryType dst, uint dstSlot)` | returns void |
+| Addon name | **`FreeCompanyChest`** |
+| Quantity prompt addon | `InputNumeric` |
+| `AtkUnitBase.FireCallbackInt(int)` | for tab switching |
+
+Addon names cross-checked by grepping the installed plugin DLLs: `FreeCompanyChest` appears in
+AutoRetainer, CriticalCommonLib and Underlings; `InputNumeric` in Artisan and ECommons.
+
+**Compartments load one at a time.** The server only sends the compartment being viewed; the others
+report `IsLoaded == false` — the "loading" state visible in the UI. A single pass can therefore
+never see the whole chest. `ChestTally` keeps a per-compartment snapshot, refreshes whichever one is
+loaded, and reports how many have been seen so a partial tally is *visibly* partial.
+
+**`MoveItemInChest` takes no quantity argument**, which is what makes "take every unit of this item"
+possible without driving the game's quantity prompt. The prompt is a UI-layer thing; this is the
+function the UI calls underneath. ⚠️ Believed but **not yet confirmed in game** — if a quantity
+prompt does appear, the withdrawal will stall out and stop safely rather than misbehave.
+
+**Withdrawal only reaches loaded compartments.** Stacks in unopened compartments cannot be moved;
+`UnreachableQuantity` reports them so the shortfall is explained rather than silent.
+
+⚠️ **`RequestPage` / tab switching is unverified.** `FireCallbackInt(tabIndex)` is a reasonable
+guess at the compartment tab list, not a confirmed signature. It is behind an opt-in setting; if it
+does nothing, clicking the tabs by hand still completes the tally.
+
+---
+
 ## APIs confirmed present in this Dalamud
 
 Checked against `%AppData%\XIVLauncher\addon\Hooks\dev\Dalamud.xml` before use:

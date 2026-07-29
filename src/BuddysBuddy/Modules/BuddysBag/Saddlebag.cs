@@ -184,11 +184,5 @@ internal static unsafe class Saddlebag
     }
 
     /// <summary>Item name for logging, falling back to the raw id if the sheet has no row.</summary>
-    public static string ItemName(uint itemId)
-    {
-        var sheet = DalamudServices.DataManager.GetExcelSheet<Item>();
-        var row = sheet?.GetRowOrDefault(itemId);
-        var name = row?.Name.ToString();
-        return string.IsNullOrEmpty(name) ? $"item #{itemId}" : name;
-    }
+    public static string ItemName(uint itemId) => Game.GameItems.Name(itemId);
 }

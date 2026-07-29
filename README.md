@@ -10,6 +10,7 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 | Module | Command | What it does |
 | --- | --- | --- |
 | **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
+| **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
 | Sample | `/bb sample` | Worked example — copy it to start a new module |
 
 ### Buddy's Bag
@@ -24,6 +25,36 @@ saddlebag — so partial stacks are left unmerged rather than risking that.
 
 Tunable under Settings: delay between moves (default 200 ms — the game refuses moves issued too
 quickly), whether to include the premium saddlebag pages, and whether to report to chat.
+
+### Buddy's Chest
+
+Tallies the free company chest and takes **all** of one item at a time.
+
+The chest loads one compartment at a time — open a compartment and the rest go into a loading
+state, so nothing can read the whole chest in one pass. Buddy's Chest therefore *accumulates*: it
+re-reads whichever compartment is loaded and merges the results, giving a single combined count per
+item across all five compartments plus crystals. It always shows how many compartments it has
+actually seen, so a partial tally is never mistaken for a complete one:
+
+```
+Scanned 3 of 6 compartments — this tally is INCOMPLETE.
+Not yet seen: Compartment 4, Compartment 5, Crystals
+```
+
+Click through the remaining tabs and the count completes itself. HQ is tracked as a separate item.
+
+Search the list, then **Take all** on a row to pull every stack of that item into free inventory
+slots. Anything sitting in a compartment that is not currently open cannot be moved, and the
+shortfall is reported rather than silently dropped.
+
+`/bb chest` reports the tally · `/bb chest find <name>` looks an item up · `/bb chest rescan`
+clears it · `/bb chest stop` aborts a withdrawal.
+
+Two caveats, both flagged in [knowledge/verified.md](knowledge/verified.md): withdrawal uses the
+chest agent's own move function, which takes no quantity argument and so should bypass the game's
+quantity prompt — believed, not yet confirmed in game. And the optional "load all compartments"
+button guesses at the tab callback; it is off by default and clicking the tabs by hand always
+works.
 
 ## Requirements
 
