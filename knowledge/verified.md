@@ -43,16 +43,11 @@ Both are absolute paths ending in `.dll`. That is the required shape.
 | `net10.0-windows` | ✅ correct TFM | `Dalamud.deps.json` declares `.NETCoreApp,Version=v10.0` |
 
 **Dalamud 15.0.3.0 uses API level 14.** The Dalamud *version* and the *API level* are different
-numbers — do not assume 15.0.3.0 means API 15. Verified across all 63 plugins in
-`%AppData%\XIVLauncher\installedPlugins`: 63/63 report `DalamudApiLevel: 14`, 0 report 13 or 15.
+numbers — do not assume 15.0.3.0 means API 15. Verified across `%AppData%\XIVLauncher\installedPlugins`:
+**68 plugins report API 14**, one stale plugin still reports 13, none report 15.
 
-To re-check after any SDK bump:
-
-```sh
-dotnet build BuddysBuddy.slnx -c Debug
-# then confirm the generated manifest:
-#   src/BuddysBuddy/bin/Debug/BuddysBuddy.json  ->  "DalamudApiLevel": 14
-```
+This is the failure mode to watch for: an API mismatch **builds perfectly cleanly** and only fails
+in game, where Dalamud rejects the plugin as outdated. `dotnet run scripts/verify.cs` checks it.
 
 ---
 
@@ -68,15 +63,46 @@ Checked against `%AppData%\XIVLauncher\addon\Hooks\dev\Dalamud.xml` before use:
 
 ---
 
-## GitHub Actions
+## Local verification (CI substitute)
 
-| Fact | Status |
+```sh
+dotnet build BuddysBuddy.slnx -c Debug
+dotnet run scripts/verify.cs
+```
+
+[`scripts/verify.cs`](../scripts/verify.cs) is a .NET 10 file-based app (single `.cs`, no project)
+that reflection-only-loads the built DLL and asserts the things Dalamud checks at load time:
+manifest sits beside the DLL, API level matches the installed Dalamud, exactly one
+`IDalamudPlugin` entry point, and every module has the parameterless constructor
+`ModuleManager` needs. Last run: **all checks passed**.
+
+Written because Actions cannot run here — this is the replacement, not an extra.
+
+---
+
+## GitHub Actions — blocked at the account level
+
+**Actions cannot run on this account at all.** The exact error, from the job annotation API:
+
+> The job was not started because your account is locked due to a billing issue.
+
+| Attempt | Result |
 | --- | --- |
-| Actions on this account's **private** repos | ❌ `startup_failure` in <1s, no logs |
-| Repo made **public** on 2026-07-28 | ✅ public repos get free unlimited minutes |
+| Private repo, real build workflow | ❌ `startup_failure`, <1s, no logs |
+| Private repo, nine-line `echo ok` on `ubuntu-latest` | ❌ identical failure → workflow file is **not** at fault |
+| Public repo, real build workflow | ❌ `failure`, 0 steps ran, billing-lock annotation |
 
-Diagnosed by isolation: a nine-line `echo ok` job on `ubuntu-latest` failed identically to the real
-build workflow, proving the workflow file was not at fault.
+Public repos normally get unlimited free Actions minutes, so the fact that going public did **not**
+help is what proves this is an account-wide lock rather than a minutes quota. The repo was returned
+to **private** afterwards, since the only reason to make it public had evaporated.
+
+Fix is outside this repo: **github.com/settings/billing** — an unpaid invoice or declined payment
+method, typically from Copilot, Pro, private-repo Actions overage, or Packages/LFS storage. The
+billing REST API needs a `user` token scope, which the current token lacks.
+
+`.github/workflows/build.yml` is left in place and is believed correct — the
+`dalamud-distrib/latest.zip` URL it depends on was verified reachable (HTTP 200, 58 MB) — but it
+has **never executed a single step**, so treat it as unproven until Actions is unlocked.
 
 ---
 

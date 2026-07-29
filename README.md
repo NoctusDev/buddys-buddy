@@ -26,17 +26,29 @@ Release build additionally packages `bin/Release/BuddysBuddy/latest.zip` for dis
 If restore fails on the SDK version, bump `Sdk="Dalamud.NET.Sdk/13.0.0"` in
 [BuddysBuddy.csproj](src/BuddysBuddy/BuddysBuddy.csproj) to match your installed Dalamud.
 
-### CI
+## Verify
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds on push and PR. It downloads the
-Dalamud dev distribution into `%AppData%\XIVLauncher\addon\Hooks\dev` first, since hosted runners
-have no Dalamud install.
+```sh
+dotnet run scripts/verify.cs
+```
 
-**GitHub Actions currently cannot start on this repository** — every run returns `startup_failure`
-in under a second with no logs, including a minimal `echo` job, so it is an account/billing
-entitlement issue rather than a problem with the workflow. Actions minutes are free and unlimited
-for public repositories, so this resolves itself if the repo is made public; otherwise it needs
-Actions billing enabled on the account. Until then, build locally.
+Reflection-only-loads the built plugin and asserts what Dalamud checks at load time — API level,
+entry point, module discoverability — so a broken build is caught without launching the game. The
+API level check matters most: a mismatch **compiles cleanly** and only fails in game.
+
+```
+API level
+  PASS  manifest API level matches installed Dalamud — ours=14, installed=API 14x68
+Modules
+  PASS  SampleModule has a public parameterless constructor
+All checks passed. The plugin is structurally loadable by Dalamud.
+```
+
+This exists because **GitHub Actions cannot run on this account** — jobs are refused with *"your
+account is locked due to a billing issue"*, which is account-wide and unaffected by repo
+visibility. [`.github/workflows/build.yml`](.github/workflows/build.yml) is left in place and is
+believed correct, but has never executed a step, so treat it as unproven. Details and evidence in
+[knowledge/verified.md](knowledge/verified.md).
 
 ## Dev install
 
