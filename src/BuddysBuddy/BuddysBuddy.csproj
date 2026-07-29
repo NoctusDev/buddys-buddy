@@ -4,11 +4,13 @@
   Uses the Dalamud.NET.Sdk MSBuild SDK, which references the local Dalamud dev assemblies
   (%AppData%\XIVLauncher\addon\Hooks\dev) and runs DalamudPackager on build.
 
-  The SDK version is pinned to match the installed Dalamud, which targets .NETCoreApp v10.0
-  (checked 2026-07-28). If restore fails on the SDK version, bump it to the current
-  Dalamud.NET.Sdk release.
+  The SDK version determines the emitted DalamudApiLevel, which must match the installed Dalamud
+  or the plugin is rejected as outdated. Dalamud 15.0.3.0 uses **API level 14**, confirmed against
+  all 63 plugins in %AppData%\XIVLauncher\installedPlugins (checked 2026-07-28) — so pin the 14.x
+  SDK, not 15.x. Verify after changing: the generated bin\<cfg>\BuddysBuddy.json must read
+  "DalamudApiLevel": 14.
 -->
-<Project Sdk="Dalamud.NET.Sdk/13.0.0">
+<Project Sdk="Dalamud.NET.Sdk/14.0.2">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>

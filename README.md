@@ -40,9 +40,23 @@ Actions billing enabled on the account. Until then, build locally.
 
 ## Dev install
 
-1. In game, run `/xldev` (or `/xlsettings`) → **Experimental**
-2. Add `…\src\BuddysBuddy\bin\Debug` to **Dev Plugin Locations**
-3. Save, then enable **Buddy's Buddy** in the plugin installer's dev tab
+Dev Plugin Locations wants the **path to the DLL itself**, not the folder that contains it.
+Pointing at the folder gives *"The entered value is not a valid path to a potential Dev Plugin."*
+
+1. In game, run `/xlsettings` → **Experimental**
+2. Under **Dev Plugin Locations**, enter exactly:
+
+   ```
+   D:\Buddy's Buddy\src\BuddysBuddy\bin\Debug\BuddysBuddy.dll
+   ```
+
+3. Press **+**, then **Save**
+4. Open the plugin installer → **Dev Tools** / **Installed Plugins**, and enable **Buddy's Buddy**
+
+`BuddysBuddy.json` must sit next to the DLL — the build puts it there automatically.
+
+See [knowledge/verified.md](knowledge/verified.md) for what is confirmed working in this
+environment and what is known broken.
 
 ## Commands
 
