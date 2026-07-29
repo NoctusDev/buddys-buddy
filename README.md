@@ -26,6 +26,18 @@ Release build additionally packages `bin/Release/BuddysBuddy/latest.zip` for dis
 If restore fails on the SDK version, bump `Sdk="Dalamud.NET.Sdk/13.0.0"` in
 [BuddysBuddy.csproj](src/BuddysBuddy/BuddysBuddy.csproj) to match your installed Dalamud.
 
+### CI
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds on push and PR. It downloads the
+Dalamud dev distribution into `%AppData%\XIVLauncher\addon\Hooks\dev` first, since hosted runners
+have no Dalamud install.
+
+**GitHub Actions currently cannot start on this repository** — every run returns `startup_failure`
+in under a second with no logs, including a minimal `echo` job, so it is an account/billing
+entitlement issue rather than a problem with the workflow. Actions minutes are free and unlimited
+for public repositories, so this resolves itself if the repo is made public; otherwise it needs
+Actions billing enabled on the account. Until then, build locally.
+
 ## Dev install
 
 1. In game, run `/xldev` (or `/xlsettings`) → **Experimental**
