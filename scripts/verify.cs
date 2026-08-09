@@ -8,18 +8,51 @@ using System.Text.Json;
 // installed Dalamud and that the entry point and modules are discoverable by reflection — the
 // structural checks the game performs at load time, without launching the game.
 //
-//   dotnet run scripts/verify.cs                                 (BuddysBuddy, Debug)
+//   dotnet run scripts/verify.cs                        (the plugin in src/, Debug)
 //   dotnet run scripts/verify.cs -- . Release
+//   dotnet run scripts/verify.cs -- . Debug BuddysBuddy (pick one explicitly)
 //
-// Exists because GitHub Actions cannot run on this account (see knowledge/verified.md), so this
-// is the substitute for CI. Uses a reflection-only load, so nothing in the plugin is executed.
+// Runs alongside CI rather than instead of it: build.yml asserts the same API level on every
+// push, and this gives the same answer locally in a second. Uses a reflection-only load, so
+// nothing in the plugin is executed.
 
 var repo = args.Length > 0 ? args[0] : Directory.GetCurrentDirectory();
 var config = args.Length > 1 ? args[1] : "Debug";
 
-// Which plugin to check. The repo holds more than one, and each has its own bin folder and its
+// Which plugin to check. A repo may hold more than one, and each has its own bin folder and its
 // own emitted API level — checking only the first one is how a stale sibling ships.
-var plugin = args.Length > 2 ? args[2] : "BuddysBuddy";
+//
+// The default is discovered from src/ rather than hard-coded, so this file really is the same
+// in every plugin repo. A baked-in name meant the "shared" copies silently differed by one
+// line, and the wrong one looked for a plugin that repo does not contain.
+string plugin;
+if (args.Length > 2)
+{
+    plugin = args[2];
+}
+else
+{
+    var srcDir = Path.Combine(repo, "src");
+    var candidates = Directory.Exists(srcDir)
+        ? Directory.GetDirectories(srcDir)
+            .Where(d => File.Exists(Path.Combine(d, Path.GetFileName(d) + ".csproj")))
+            .Select(Path.GetFileName)
+            .OfType<string>()
+            .OrderBy(n => n)
+            .ToList()
+        : new List<string>();
+
+    if (candidates.Count == 0)
+    {
+        Console.WriteLine($"No plugin project found under {srcDir}.");
+        Console.WriteLine("Pass one explicitly:  dotnet run scripts/verify.cs -- . Debug <PluginName>");
+        return 1;
+    }
+
+    plugin = candidates[0];
+    if (candidates.Count > 1)
+        Console.WriteLine($"Note: {candidates.Count} plugins here ({string.Join(", ", candidates)}); checking {plugin}.");
+}
 
 var binDir = Path.Combine(repo, "src", plugin, "bin", config);
 var dll = Path.Combine(binDir, $"{plugin}.dll");
@@ -57,7 +90,7 @@ Check(File.Exists(dll), "plugin DLL exists", dll);
 Check(File.Exists(manifestPath), "manifest sits beside the DLL", Path.GetFileName(manifestPath));
 if (failures.Count > 0)
 {
-    Console.WriteLine($"\nBuild first:  dotnet build BuddysBuddy.slnx -c {config}");
+    Console.WriteLine($"\nBuild first:  dotnet build MarketTraveler.slnx -c {config}");
     return 1;
 }
 
@@ -122,18 +155,32 @@ if (entry.Count == 1)
             "(" + string.Join(", ", c.GetParameters().Select(p => p.ParameterType.Name)) + ")")));
 }
 
-Console.WriteLine("\nModules");
+// Not every plugin is a module host. Buddy's Buddy discovers modules by reflection and so
+// has something to check here; MarketTraveler is a single plugin and has no IModule at all.
+// Requiring modules unconditionally made this script fail on any plugin that is not a host,
+// which is the opposite of "one script serves every repo".
 var moduleIface = $"{asm.GetName().Name}.Modules.IModule";
-var modules = types.Where(t => Implements(t, moduleIface) && !t.IsAbstract && !t.IsInterface).ToList();
+var hostsModules = types.Any(t => t.FullName == moduleIface);
 
-Check(modules.Count > 0, "at least one module discoverable", $"{modules.Count} found");
-
-// ModuleManager instantiates by reflection, and duplicate internal names collide in config.
-foreach (var m in modules)
+if (hostsModules)
 {
-    Check(m.GetConstructor(Type.EmptyTypes) != null,
-        $"{m.Name} has a public parameterless constructor",
-        "required by reflection discovery");
+    Console.WriteLine("\nModules");
+    var modules = types.Where(t => Implements(t, moduleIface) && !t.IsAbstract && !t.IsInterface).ToList();
+
+    Check(modules.Count > 0, "at least one module discoverable", $"{modules.Count} found");
+
+    // ModuleManager instantiates by reflection, and duplicate internal names collide in config.
+    foreach (var m in modules)
+    {
+        Check(m.GetConstructor(Type.EmptyTypes) != null,
+            $"{m.Name} has a public parameterless constructor",
+            "required by reflection discovery");
+    }
+}
+else
+{
+    Console.WriteLine("\nModules");
+    Console.WriteLine("  SKIP  not a module host — no IModule in this assembly");
 }
 
 Console.WriteLine();
