@@ -27,3 +27,5 @@ desktop.ini
 cache/
 reference/
 *.log
+err.txt
+logs.zip

@@ -8,7 +8,7 @@ using System.Text.Json;
 // installed Dalamud and that the entry point and modules are discoverable by reflection — the
 // structural checks the game performs at load time, without launching the game.
 //
-//   dotnet run scripts/verify.cs                  (Debug)
+//   dotnet run scripts/verify.cs                                 (BuddysBuddy, Debug)
 //   dotnet run scripts/verify.cs -- . Release
 //
 // Exists because GitHub Actions cannot run on this account (see knowledge/verified.md), so this
@@ -17,9 +17,15 @@ using System.Text.Json;
 var repo = args.Length > 0 ? args[0] : Directory.GetCurrentDirectory();
 var config = args.Length > 1 ? args[1] : "Debug";
 
-var binDir = Path.Combine(repo, "src", "BuddysBuddy", "bin", config);
-var dll = Path.Combine(binDir, "BuddysBuddy.dll");
-var manifestPath = Path.Combine(binDir, "BuddysBuddy.json");
+// Which plugin to check. The repo holds more than one, and each has its own bin folder and its
+// own emitted API level — checking only the first one is how a stale sibling ships.
+var plugin = args.Length > 2 ? args[2] : "BuddysBuddy";
+
+var binDir = Path.Combine(repo, "src", plugin, "bin", config);
+var dll = Path.Combine(binDir, $"{plugin}.dll");
+var manifestPath = Path.Combine(binDir, $"{plugin}.json");
+
+Console.WriteLine($"Plugin:  {plugin} ({config})");
 
 // Resolve the Dalamud this machine actually runs. The SDK default (%AppData%\XIVLauncher) is NOT
 // it here — XIVLauncher runs with --roamingPath, and the default location holds a stale install on

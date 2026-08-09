@@ -7,10 +7,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  PLUGIN: BuddysBuddy
+  SOLUTION: BuddysBuddy.slnx
+  API_LEVEL: '15'
+
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -19,9 +23,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Dalamud.NET.Sdk resolves the game/plugin assemblies from a local Dalamud
-      # install, which CI does not have. Download the dev distribution and point
-      # DALAMUD_HOME at it so the build can reference them.
+      # Dalamud.NET.Sdk resolves the game/plugin assemblies from a local Dalamud install,
+      # which CI does not have. A real DALAMUD_HOME overrides Directory.Build.props, so this
+      # beats the machine-specific path pinned there.
       - name: Fetch Dalamud dev distribution
         shell: pwsh
         run: |
@@ -32,11 +36,22 @@ jobs:
           echo "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
 
       - name: Build
-        run: dotnet build BuddysBuddy.slnx -c Release --nologo
+        run: dotnet build ${{ env.SOLUTION }} -c Release --nologo
+
+      # An API mismatch builds perfectly cleanly and only fails in game, so assert the
+      # emitted level here rather than finding out at the login screen.
+      - name: Check emitted API level
+        shell: pwsh
+        run: |
+          $manifest = "src/$env:PLUGIN/bin/Release/$env:PLUGIN.json"
+          if (-not (Test-Path $manifest)) { throw "no manifest at $manifest" }
+          $level = (Get-Content $manifest -Raw | ConvertFrom-Json).DalamudApiLevel
+          if ($level -ne [int]$env:API_LEVEL) { throw "DalamudApiLevel $level, expected $env:API_LEVEL" }
+          Write-Host "$env:PLUGIN : API $level OK"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BuddysBuddy
-          path: src/BuddysBuddy/bin/Release/**/BuddysBuddy/*
+          name: ${{ env.PLUGIN }}
+          path: src/${{ env.PLUGIN }}/bin/Release/**/*.zip
           if-no-files-found: warn

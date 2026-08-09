@@ -18,6 +18,13 @@ public sealed class DalamudServices
     [PluginService] public static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] public static IPluginLog Log { get; private set; } = null!;
     [PluginService] public static IClientState ClientState { get; private set; } = null!;
+
+    /// <summary>
+    /// The logged-in character. Dalamud API 15 moved <c>LocalPlayer</c> and <c>LocalContentId</c>
+    /// off <see cref="IClientState"/>; content id and name now live here.
+    /// </summary>
+    [PluginService] public static IPlayerState PlayerState { get; private set; } = null!;
+
     [PluginService] public static IFramework Framework { get; private set; } = null!;
     [PluginService] public static IDataManager DataManager { get; private set; } = null!;
     [PluginService] public static IGameGui GameGui { get; private set; } = null!;

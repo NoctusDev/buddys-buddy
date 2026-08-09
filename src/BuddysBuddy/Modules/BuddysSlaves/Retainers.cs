@@ -5,7 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 namespace BuddysBuddy.Modules.BuddysSlaves;
 
 /// <summary>One retainer as listed at the bell, in display order.</summary>
-internal readonly record struct RetainerInfo(ulong Id, string Name, int SortIndex, byte ItemCount);
+internal readonly record struct RetainerInfo(ulong Id, string Name, int SortIndex, byte ItemCount, uint Gil);
 
 /// <summary>One occupied slot in a retainer's inventory.</summary>
 internal readonly record struct RetainerSlot(
@@ -84,7 +84,8 @@ internal static unsafe class Retainers
             if (retainer is null || retainer->RetainerId == 0)
                 continue;
 
-            list.Add(new RetainerInfo(retainer->RetainerId, retainer->NameString, (int)i, retainer->ItemCount));
+            list.Add(new RetainerInfo(
+                retainer->RetainerId, retainer->NameString, (int)i, retainer->ItemCount, retainer->Gil));
         }
 
         return list;
@@ -114,7 +115,7 @@ internal static unsafe class Retainers
             }
         }
 
-        return new RetainerInfo(active->RetainerId, active->NameString, sortIndex, active->ItemCount);
+        return new RetainerInfo(active->RetainerId, active->NameString, sortIndex, active->ItemCount, active->Gil);
     }
 
     /// <summary>True once the open retainer's page has been sent by the server.</summary>

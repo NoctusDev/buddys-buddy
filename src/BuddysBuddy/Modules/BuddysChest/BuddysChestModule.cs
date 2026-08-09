@@ -69,10 +69,12 @@ public sealed class BuddysChestModule : ModuleBase
     {
         _settings = Config.GetModuleConfig<BuddysChestConfig>(InternalName);
         Framework.Update += OnFrameworkUpdate;
+        ItemSourceRegistry.Register(_tally);
     }
 
     protected override void OnUnload()
     {
+        ItemSourceRegistry.Unregister(_tally);
         Framework.Update -= OnFrameworkUpdate;
         _withdrawing = null;
         _tally.Clear();

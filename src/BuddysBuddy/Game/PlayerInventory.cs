@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace BuddysBuddy.Game;
@@ -12,6 +13,22 @@ public static unsafe class PlayerInventory
     [
         InventoryType.Inventory1, InventoryType.Inventory2,
         InventoryType.Inventory3, InventoryType.Inventory4,
+    ];
+
+    /// <summary>
+    /// Everywhere something you are given can land: the four bags, plus the crystals container.
+    /// </summary>
+    /// <remarks>
+    /// Shards, crystals and clusters do <em>not</em> go into a bag slot — they have their own
+    /// container. A "what did I just gain" snapshot over <see cref="Bags"/> alone silently misses
+    /// them, which is exactly what happened to the first desynthesis ledger: the game reported
+    /// "6x Fire Shard" and the diff saw nothing. Confirmed in game 2026-08-05.
+    /// </remarks>
+    public static readonly InventoryType[] Receivable =
+    [
+        InventoryType.Inventory1, InventoryType.Inventory2,
+        InventoryType.Inventory3, InventoryType.Inventory4,
+        InventoryType.Crystals,
     ];
 
     /// <summary>Empty slots across all four pages.</summary>
@@ -74,6 +91,58 @@ public static unsafe class PlayerInventory
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Total units per item across a set of containers.
+    /// </summary>
+    /// <remarks>
+    /// Two of these taken either side of an action, subtracted, are proof of what it actually did —
+    /// which is how both withdrawals and desynthesis yields are confirmed here. Containers that are
+    /// not loaded are skipped, so a snapshot never invents a zero.
+    /// </remarks>
+    public static Dictionary<ItemKey, int> Snapshot(IEnumerable<InventoryType> containers)
+    {
+        var totals = new Dictionary<ItemKey, int>();
+
+        var manager = InventoryManager.Instance();
+        if (manager is null)
+            return totals;
+
+        foreach (var type in containers)
+        {
+            var container = manager->GetInventoryContainer(type);
+            if (container is null || !container->IsLoaded)
+                continue;
+
+            for (var i = 0; i < container->Size; i++)
+            {
+                var item = container->GetInventorySlot(i);
+                if (item is null || item->ItemId == 0)
+                    continue;
+
+                var key = new ItemKey(item->ItemId, (item->Flags & InventoryItem.ItemFlags.HighQuality) != 0);
+                totals[key] = totals.GetValueOrDefault(key) + item->Quantity;
+            }
+        }
+
+        return totals;
+    }
+
+    /// <summary>What <paramref name="after"/> has that <paramref name="before"/> did not.</summary>
+    public static Dictionary<ItemKey, int> Gained(
+        IReadOnlyDictionary<ItemKey, int> before, IReadOnlyDictionary<ItemKey, int> after)
+    {
+        var gained = new Dictionary<ItemKey, int>();
+
+        foreach (var (key, quantity) in after)
+        {
+            var delta = quantity - before.GetValueOrDefault(key);
+            if (delta > 0)
+                gained[key] = delta;
+        }
+
+        return gained;
     }
 
     /// <summary>

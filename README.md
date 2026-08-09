@@ -9,9 +9,51 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 
 | Module | Command | What it does |
 | --- | --- | --- |
+| **Buddy's Stash** | `/bb stash` | One search box over everything you own, everywhere it is |
+| **Buddy's Purse** | `/bb purse` | Totals your gil across character, retainers and free company |
 | **Buddy's Bag** | `/bb bag` | Opens the chocobo saddlebag and moves every item out of it into your inventory |
 | **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
 | **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a shopping list of items, top to bottom |
+| **Buddy's Desynther** | `/bb desynth` | Desynthesises the game's whole list in one button and records the yields |
+
+### Buddy's Stash
+
+Every other module already knows what is in one place. Buddy's Stash is the join: bags, crystals,
+saddlebag, all five FC compartments, and every retainer, folded into one answer per item.
+
+```
+Titanium Ore     567   Chocobo 400 · Compartment 2 120 · Bags 47
+```
+
+Click a row for the full breakdown. `/bb stash <name>` prints the same thing to chat.
+
+It reads **nothing** from the game itself — it only aggregates what the other modules have already
+seen, so it works with any of them switched off.
+
+**It is careful about what it does not know.** Only one retainer and one FC compartment can be read
+at a time, so a complete picture is built up as you go. Counts that came off disk rather than from
+this session are shown in amber, and the total's tooltip splits confirmed from remembered:
+
+```
+12 location(s) read this session, 5 remembered from an earlier one.
+```
+
+Those remembered snapshots live in the plugin's own folder (`sources.json`), not in the plugin
+config — see [knowledge/verified.md](knowledge/verified.md) for why that distinction matters here.
+**Forget everything remembered** under Settings clears them.
+
+Compartments are keyed by index rather than by free company, so being in two FCs will blur their
+*remembered* tallies together; whatever is open in front of you is always right.
+
+### Buddy's Purse
+
+Gil per location — character, each retainer, and the FC — with a total and an optional baseline to
+measure earnings against.
+
+A retainer you have never opened cannot be read, so it is **left out rather than counted as zero**.
+The same amber marking applies to anything not read this session.
+
+`/bb purse` reports the breakdown · `/bb purse baseline` resets the baseline to the current total.
 
 ### Buddy's Bag
 
@@ -107,6 +149,78 @@ is in progress.
 `/bb slaves` reports the tally and list · `/bb slaves find <name>` looks an item up ·
 `/bb slaves run` · `/bb slaves stop` · `/bb slaves clear` · `/bb slaves rescan`.
 
+### Buddy's Desynther
+
+One table of everything you own that can be desynthesised, and a button per pile. No queue, no
+filters, and the game's Desynthesis window does not need to be open.
+
+**There is nothing to configure.** `Item.Desynth > 0` is the game's own answer to "can this be
+desynthesised" and the required skill is the item's own level, so eligibility is never a decision you
+have to make.
+
+```
+Item                       Have  Where     Skill    Worth it?
+Bronze Cross-pein Hammer      1  Armoury    32/8       +310
+Classical Battleaxe           1  Armoury    32/580     +1,940
+```
+
+The **Skill** column is your desynthesis level against the item's level. It is a **hint about yield,
+not a restriction** — anything desynthesisable can be desynthesised at any skill level; being
+under-levelled just means poorer returns and no skill gain. Nothing is ever excluded because of it.
+That skill is per crafting class and separate from your crafting levels: which class *made* an item
+decides which of the eight applies, so being level 70 Blacksmith does not mean your Blacksmith
+*desynthesis* is 70.
+
+(If your Desynthesis window shows a red `skill/required` column, that is SimpleTweaks' *Extended
+Desynthesis Window*, not the game refusing you.)
+
+Bags and the armoury chest, never equipped gear. **Desynthesis cannot be undone**, so each button
+asks twice — the first click arms it for four seconds, the second does it. The list above the button
+is exactly what will be destroyed.
+
+**Desynthesis unlocks per crafting class at level 30**, and which class *made* an item decides which
+of yours applies. Items whose class you have not levelled that far are greyed out with the reason —
+`Carpenter is level 12 — desynthesis unlocks at 30` — and left out of runs. That comes from
+`PlayerState.GetClassJobLevel`, so it is the game's own answer rather than a guess.
+
+If the game declines something anyway, the run does not stop: it skips that item, remembers it for
+the session and carries on, reporting both counts — `Desynthesised 24 item(s), skipped 3 the game
+would not do`. **Retry them** clears that memory.
+
+`/bb desynth bags` · `/bb desynth armoury` · `/bb desynth all` · `/bb desynth stop`
+
+#### The ledger
+
+Every desynthesis is measured against your inventory immediately before and after — bags **and the
+crystals container**, since shards and crystals do not live in a bag slot and are often most of the
+yield. The game also reports its own yield through `AgentSalvage.DesynthResults`; Buddy's Desynther
+records the **inventory**, cross-checks it against the game's claim, and counts the disagreements
+rather than quietly picking one. That cross-check is what caught the missing crystals.
+
+Yields are random, so one run says nothing and a hundred say a great deal. The run count is always
+shown, and once there is enough of it the **Worth it?** column fills in: expected yield minus what a
+vendor would pay for the item itself, from *your* ledger.
+It uses vendor prices — a floor, not a valuation. Real market prices would come from a market plugin
+over IPC; the ledger is already in the right shape for it.
+
+The ledger lives in the plugin's own folder (`desynth-ledger.json`), not in the plugin config, and it
+is the only record of what hundreds of destroyed items actually produced.
+
+`/bb desynth` reports state · `/bb desynth probe` writes a diagnostic report (see below).
+
+#### If something misbehaves
+
+Three details of the desynthesis flow could not be settled from the game's assemblies — which
+callback dismisses the dialog, how the results window closes, and what two of `SalvageItem`'s
+arguments want. The current answers are educated guesses, and they are guesses that **cannot strand
+the runner**: every step is judged by whether the source stack actually got smaller, not by a return
+code, and each has a timeout that stops with a plain reason.
+
+`/bb desynth probe` writes what the game says right now — agent state, addon state, the last yield,
+your desynthesis levels — to `pluginConfigs/BuddysBuddy/desynth-probe-<timestamp>.txt`. Run it at
+each stage of a real desynthesis and those three questions answer themselves. Details in
+[knowledge/verified.md](knowledge/verified.md).
+
 ## Requirements
 
 - FFXIV with [XIVLauncher / Dalamud](https://goatcorp.github.io/) installed
@@ -130,7 +244,7 @@ If restore fails on the SDK version, bump `Sdk="Dalamud.NET.Sdk/13.0.0"` in
 > roaming path, so the live install is `d:\Multibox\Glumishxiv3`, while the SDK's default
 > `%AppData%\XIVLauncher` holds a stale copy on an older API level. Building against the default
 > produces a plugin the game rejects as outdated. [`Directory.Build.props`](Directory.Build.props)
-> pins this; see [knowledge/verified.md](knowledge/verified.md).
+> pins this; see [knowledge/dalamud.md](knowledge/dalamud.md).
 
 ## Verify
 
@@ -158,11 +272,25 @@ They are separate on purpose: `verify.cs` uses a reflection-only load and so can
 serializer, while `verify-config.cs` really loads the assembly and runs Newtonsoft with Dalamud's
 own settings against the config file on disk.
 
-This exists because **GitHub Actions cannot run on this account** — jobs are refused with *"your
-account is locked due to a billing issue"*, which is account-wide and unaffected by repo
-visibility. [`.github/workflows/build.yml`](.github/workflows/build.yml) is left in place and is
-believed correct, but has never executed a step, so treat it as unproven. Details and evidence in
-[knowledge/verified.md](knowledge/verified.md).
+These run alongside CI rather than instead of it. [`.github/workflows/build.yml`](.github/workflows/build.yml)
+builds on every push and **asserts the emitted `DalamudApiLevel`**, and
+[`release.yml`](.github/workflows/release.yml) publishes `BuddysBuddy.zip` on a `v*` tag.
+
+An older note here claimed Actions was blocked account-wide for billing reasons. That was true once
+and is now stale — the Build workflow has run and succeeded repeatedly. The correction, and the
+original entry underneath it, are in [knowledge/dalamud.md](knowledge/dalamud.md).
+
+## Installing in game
+
+Dalamud settings → **Experimental** → *Custom Plugin Repositories*:
+
+```
+https://raw.githubusercontent.com/NoctusDev/DalamudPlugins/main/pluginmaster.json
+```
+
+That one URL serves **every** NoctusDev plugin, so it only ever needs adding once — anything
+published later shows up on its own. It is generated from this repo's own
+[`repo.json`](repo.json), which stays the source of truth for this plugin's entry.
 
 ## Dev install
 
@@ -246,6 +374,22 @@ after a change. **Do not change `InternalName` after release** — it orphans sa
 
 ### Services
 
+### Publishing what your module knows
+
+If a module tracks somewhere items live, implement
+[`IItemSourceProvider`](src/BuddysBuddy/Game/ItemSource.cs) and register it in `OnLoad`:
+
+```csharp
+protected override void OnLoad() => ItemSourceRegistry.Register(_tally);
+
+protected override void OnUnload() => ItemSourceRegistry.Unregister(_tally);
+```
+
+Buddy's Stash and Buddy's Purse then answer for it with no further work, and it is remembered across
+sessions automatically. A source must report `LastSeen` honestly and leave `IsLive` false for
+anything it has not read this session — everything downstream depends on being able to tell a
+current count from a remembered one.
+
 Dalamud services are exposed as statics on
 [`DalamudServices`](src/BuddysBuddy/Services/DalamudServices.cs); `ModuleBase` re-exposes the common
 ones as `Log`, `Chat`, `Framework` and `Config`. Add new services to that class as you need them.
@@ -254,8 +398,9 @@ ones as `Log`, `Chat`, `Framework` and `Config`. Add new services to that class 
 
 ```
 src/BuddysBuddy/
-├── Plugin.cs              entry point: config, windows, commands, module manager
+├── Plugin.cs              entry point: config, item sources, windows, commands, module manager
 ├── Config/                Configuration + IModuleConfig
+├── Game/                  shared game interop: inventory, item names, IItemSource + registry
 ├── Modules/               IModule, ModuleBase, ModuleManager, and one folder per module
 ├── Services/              Dalamud service container + command routing
 └── UI/                    MainWindow, SettingsWindow
@@ -263,6 +408,17 @@ src/BuddysBuddy/
 
 A module that throws while loading or drawing is caught, logged, and reported in the UI — it will
 not take down the host or the other modules.
+
+## Sibling repositories
+
+One repo per plugin, plus [DalamudPlugins](https://github.com/NoctusDev/DalamudPlugins) — which
+holds no code, only the combined `pluginmaster.json` that gives every plugin a single install URL.
+
+- [MarketTraveler](https://github.com/NoctusDev/MarketTraveler) — market board buying
+
+Two files are deliberately duplicated across the plugin repos and must be copied by hand when
+either changes: [`knowledge/dalamud.md`](knowledge/dalamud.md) and
+[`Directory.Build.props`](Directory.Build.props).
 
 ## License
 

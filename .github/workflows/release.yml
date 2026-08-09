@@ -1,0 +1,56 @@
+name: Release
+
+# Tag a commit (`git tag v0.1.0 && git push --tags`) to publish the plugin as a release asset.
+# repo.json's DownloadLink* point at releases/latest/download/<Plugin>.zip, so in-game updates
+# follow the tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN: BuddysBuddy
+  SOLUTION: BuddysBuddy.slnx
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Fetch Dalamud dev distribution
+        shell: pwsh
+        run: |
+          $dalamud = Join-Path $env:APPDATA 'XIVLauncher\addon\Hooks\dev'
+          New-Item -ItemType Directory -Force -Path $dalamud | Out-Null
+          Invoke-WebRequest -Uri 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile dalamud.zip
+          Expand-Archive -Path dalamud.zip -DestinationPath $dalamud -Force
+          echo "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
+
+      - name: Build
+        run: dotnet build ${{ env.SOLUTION }} -c Release --nologo
+
+      # DalamudPackager emits <Plugin>/latest.zip. Rename it so the release asset name
+      # matches what repo.json asks for.
+      - name: Collect package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $zip = "src/$env:PLUGIN/bin/Release/$env:PLUGIN/latest.zip"
+          if (-not (Test-Path $zip)) { throw "no package at $zip" }
+          Copy-Item $zip "dist/$env:PLUGIN.zip"
+          Get-ChildItem dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

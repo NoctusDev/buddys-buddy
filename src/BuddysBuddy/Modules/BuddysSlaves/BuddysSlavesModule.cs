@@ -42,7 +42,7 @@ public sealed class BuddysSlavesModule : ModuleBase
     /// <summary>One line of the shopping list.</summary>
     private sealed class QueueEntry
     {
-        public required RetainerItemKey Key { get; init; }
+        public required ItemKey Key { get; init; }
 
         public required string Name { get; init; }
 
@@ -65,7 +65,7 @@ public sealed class BuddysSlavesModule : ModuleBase
     private bool _running;
 
     /// <summary>Items the open retainer has run out of; cleared whenever a different one is opened.</summary>
-    private readonly HashSet<RetainerItemKey> _exhaustedHere = [];
+    private readonly HashSet<ItemKey> _exhaustedHere = [];
 
     private QueueEntry? _current;
     private Step _step = Step.Waiting;
@@ -85,10 +85,12 @@ public sealed class BuddysSlavesModule : ModuleBase
     {
         _settings = Config.GetModuleConfig<BuddysSlavesConfig>(InternalName);
         Framework.Update += OnFrameworkUpdate;
+        ItemSourceRegistry.Register(_tally);
     }
 
     protected override void OnUnload()
     {
+        ItemSourceRegistry.Unregister(_tally);
         Framework.Update -= OnFrameworkUpdate;
         _running = false;
         _queue.Clear();

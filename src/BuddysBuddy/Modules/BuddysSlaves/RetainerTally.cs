@@ -2,12 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BuddysBuddy.Game;
+using BuddysBuddy.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace BuddysBuddy.Modules.BuddysSlaves;
-
-/// <summary>Identity of an item — high quality counts separately.</summary>
-internal readonly record struct RetainerItemKey(uint ItemId, bool HighQuality);
 
 /// <summary>Where some of an item sits, and how much.</summary>
 internal sealed class RetainerHolding
@@ -26,7 +24,7 @@ internal sealed class RetainerHolding
 /// <summary>One item's presence across every scanned retainer.</summary>
 internal sealed class RetainerItemTotal
 {
-    public required RetainerItemKey Key { get; init; }
+    public required ItemKey Key { get; init; }
 
     public required string Name { get; init; }
 
@@ -48,14 +46,24 @@ internal sealed class RetainerItemTotal
 /// retainer. Snapshots are kept per retainer and merged, and the set of retainers actually seen is
 /// reported — a partial tally stays visibly partial rather than quietly wrong.
 /// </remarks>
-internal sealed class RetainerTally
+internal sealed class RetainerTally : IItemSourceProvider
 {
     private readonly Dictionary<ulong, List<RetainerSlot>> _snapshots = new();
     private readonly Dictionary<ulong, string> _names = new();
     private readonly Dictionary<ulong, int> _sortIndex = new();
     private readonly Dictionary<ulong, DateTime> _scannedAt = new();
+    private readonly Dictionary<ulong, SnapshotSource> _sources = new();
 
     private List<RetainerItemTotal>? _totals;
+
+    /// <summary>
+    /// One source per retainer actually visited this session.
+    /// </summary>
+    /// <remarks>
+    /// A retainer that has never been opened contributes nothing — but a reading of it saved by an
+    /// earlier session still surfaces through <see cref="SourceStore"/>, marked as not current.
+    /// </remarks>
+    public IEnumerable<IItemSource> GetSources() => _sources.Values;
 
     public int ScannedCount => _snapshots.Count;
 
@@ -95,6 +103,7 @@ internal sealed class RetainerTally
         _names[info.Id] = info.Name;
         _sortIndex[info.Id] = info.SortIndex;
         _scannedAt[info.Id] = DateTime.Now;
+        SourceFor(info).Update(Fold(slots), info.Gil);
 
         if (_snapshots.TryGetValue(info.Id, out var previous) && previous.SequenceEqual(slots))
             return false;
@@ -104,18 +113,50 @@ internal sealed class RetainerTally
         return true;
     }
 
+    private SnapshotSource SourceFor(RetainerInfo info)
+    {
+        if (!_sources.TryGetValue(info.Id, out var source))
+            _sources[info.Id] = source = new SnapshotSource(
+                $"retainer:{info.Id:X}", info.Name, OwnerName());
+
+        // Retainers can be renamed, and the owning character is only known once logged in.
+        source.Label = info.Name;
+        source.Group = OwnerName();
+        return source;
+    }
+
+    /// <summary>The logged-in character, used to group retainers by who they belong to.</summary>
+    private static string OwnerName()
+    {
+        var name = DalamudServices.PlayerState.CharacterName;
+        return string.IsNullOrEmpty(name) ? "Retainers" : $"{name} · retainers";
+    }
+
+    private static Dictionary<ItemKey, int> Fold(List<RetainerSlot> slots)
+    {
+        var map = new Dictionary<ItemKey, int>();
+
+        foreach (var slot in slots)
+        {
+            var key = new ItemKey(slot.ItemId, slot.HighQuality);
+            map[key] = map.GetValueOrDefault(key) + slot.Quantity;
+        }
+
+        return map;
+    }
+
     public IReadOnlyList<RetainerItemTotal> Totals => _totals ??= BuildTotals();
 
     private List<RetainerItemTotal> BuildTotals()
     {
-        var map = new Dictionary<RetainerItemKey, RetainerItemTotal>();
+        var map = new Dictionary<ItemKey, RetainerItemTotal>();
 
         // Walk retainers in bell order so each item's breakdown reads top to bottom.
         foreach (var (retainerId, slots) in _snapshots.OrderBy(kv => _sortIndex.GetValueOrDefault(kv.Key, 99)))
         {
             foreach (var slot in slots)
             {
-                var key = new RetainerItemKey(slot.ItemId, slot.HighQuality);
+                var key = new ItemKey(slot.ItemId, slot.HighQuality);
 
                 if (!map.TryGetValue(key, out var total))
                 {
@@ -157,7 +198,7 @@ internal sealed class RetainerTally
     /// Stacks of an item in the retainer currently open, in page then slot order.
     /// </summary>
     /// <remarks>Read live: a snapshot goes stale the moment a withdrawal succeeds.</remarks>
-    public static List<RetainerSlot> FindLiveStacks(RetainerItemKey key)
+    public static List<RetainerSlot> FindLiveStacks(ItemKey key)
     {
         var found = new List<RetainerSlot>();
 
@@ -179,7 +220,7 @@ internal sealed class RetainerTally
     }
 
     /// <summary>Units of an item held by retainers that are not currently open, in bell order.</summary>
-    public List<RetainerHolding> RemainingElsewhere(RetainerItemKey key, ulong? activeId)
+    public List<RetainerHolding> RemainingElsewhere(ItemKey key, ulong? activeId)
     {
         var total = Totals.FirstOrDefault(t => t.Key.Equals(key));
         if (total is null)
@@ -195,6 +236,7 @@ internal sealed class RetainerTally
     {
         _snapshots.Clear();
         _scannedAt.Clear();
+        _sources.Clear();
         _totals = null;
     }
 }

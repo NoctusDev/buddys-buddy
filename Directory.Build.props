@@ -1,24 +1,35 @@
 <Project>
 
   <!--
+    Shared across every plugin repo. Identical byte-for-byte to the copy in the sibling repos —
+    if you change it here, copy it across in the same session (same rule as knowledge/dalamud.md).
+
     Point the Dalamud SDK at the Dalamud this machine actually runs.
 
     XIVLauncher here is launched with a custom roamingPath argument of "d:\Multibox\Glumishxiv3"
     (a multibox setup), so the live Dalamud is NOT in the SDK's default location of
     %AppData%\XIVLauncher\addon\Hooks\dev.
-    That default path also exists on this machine but is a stale March install on an older API
-    level — building against it produces a plugin the running Dalamud rejects as outdated.
+    That default path also exists on this machine but is a stale install on an older API level —
+    building against it produces a plugin the running Dalamud rejects as outdated.
 
     Dalamud.NET.Sdk's Sdk.props imports Microsoft.NET.Sdk (and therefore this file) before it
     resolves DalamudLibPath, and prefers DALAMUD_HOME over its platform default, so setting the
-    property here wins. A real DALAMUD_HOME environment variable still overrides this.
+    property here wins. A real DALAMUD_HOME environment variable still overrides this — which is
+    how CI supplies its own downloaded copy.
 
     To find the correct path on another machine: check which Dalamud.dll the game process has
     loaded, or read the roamingPath argument off the running XIVLauncher process.
+    See knowledge/dalamud.md.
   -->
   <PropertyGroup Condition="'$(DALAMUD_HOME)' == ''">
     <_LiveDalamudHome>d:\Multibox\Glumishxiv3\addon\Hooks\dev</_LiveDalamudHome>
     <DALAMUD_HOME Condition="Exists('$(_LiveDalamudHome)')">$(_LiveDalamudHome)</DALAMUD_HOME>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Company>NoctusDev</Company>
+    <Copyright>Copyright © NoctusDev</Copyright>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 
 </Project>

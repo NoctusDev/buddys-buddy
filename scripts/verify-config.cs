@@ -118,6 +118,97 @@ catch (TargetInvocationException ex)
     Check(false, "round-trip", ex.InnerException?.Message ?? ex.Message);
 }
 
+// The remembered item sources are the only thing this plugin persists outside the plugin config.
+// They are their own file precisely so a break here cannot kill the plugin — but a break here is
+// still silent, so round-trip it the same way.
+Console.WriteLine("\nRemembered item sources");
+try
+{
+    var storeType = plugin.GetType("BuddysBuddy.Game.SourceStore")!;
+    var snapshotType = plugin.GetType("BuddysBuddy.Game.SnapshotSource")!;
+    var keyType = plugin.GetType("BuddysBuddy.Game.ItemKey")!;
+    var sourceType = plugin.GetType("BuddysBuddy.Game.IItemSource")!;
+
+    var items = (System.Collections.IDictionary)Activator.CreateInstance(
+        typeof(Dictionary<,>).MakeGenericType(keyType, typeof(int)))!;
+    items[Activator.CreateInstance(keyType, [(uint)5111, true])!] = 640;
+    items[Activator.CreateInstance(keyType, [(uint)5112, false])!] = 12;
+
+    var source = Activator.CreateInstance(snapshotType, ["retainer:DEAD", "Chocobo", "Glumish · retainers"])!;
+    snapshotType.GetMethod("Update")!.Invoke(source, [items, 1_234_567L]);
+
+    var list = (System.Collections.IList)Activator.CreateInstance(
+        typeof(List<>).MakeGenericType(sourceType))!;
+    list.Add(source);
+
+    var json = (string)storeType.GetMethod("Serialize")!.Invoke(null, [list])!;
+    var back = (System.Collections.IList)storeType.GetMethod("Deserialize")!.Invoke(null, [json])!;
+
+    Check(back.Count == 1, "a saved source reads back", $"{back.Count} source(s)");
+
+    var restored = back[0]!;
+    var gil = (long)snapshotType.GetProperty("Gil")!.GetValue(restored)!;
+    var live = (bool)snapshotType.GetProperty("IsLive")!.GetValue(restored)!;
+    var restoredItems = (System.Collections.ICollection)snapshotType.GetProperty("Items")!.GetValue(restored)!;
+
+    Check(gil == 1_234_567L, "gil survives the round-trip", $"{gil:N0}");
+    Check(restoredItems.Count == 2, "items survive the round-trip", $"{restoredItems.Count} entry/entries");
+    Check(!live, "a restored source is not reported as live", "stale counts must never look current");
+}
+catch (TargetInvocationException ex)
+{
+    Check(false, "item source round-trip", ex.InnerException?.Message ?? ex.Message);
+}
+
+// The desynthesis ledger is the other thing kept outside the plugin config, and the one that is
+// genuinely irreplaceable — it is the record of hundreds of destroyed items. Round-trip it too.
+Console.WriteLine("\nDesynthesis ledger");
+try
+{
+    var ledgerType = plugin.GetType("BuddysBuddy.Modules.BuddysDesynther.DesynthLedger")!;
+    var entryType = plugin.GetType("BuddysBuddy.Modules.BuddysDesynther.LedgerEntry")!;
+
+    var entry = Activator.CreateInstance(entryType)!;
+    entryType.GetProperty("SourceItemId")!.SetValue(entry, (uint)6183);
+    entryType.GetProperty("Runs")!.SetValue(entry, 37);
+    entryType.GetProperty("Disagreements")!.SetValue(entry, 1);
+    entryType.GetProperty("FirstSeen")!.SetValue(entry, DateTime.Now.AddDays(-3));
+    entryType.GetProperty("LastSeen")!.SetValue(entry, DateTime.Now);
+
+    var yield = (System.Collections.IDictionary)entryType.GetProperty("Yield")!.GetValue(entry)!;
+    yield["5111"] = 74L;
+    yield["5112h"] = 3L;
+
+    var entries = (System.Collections.IList)Activator.CreateInstance(
+        typeof(List<>).MakeGenericType(entryType))!;
+    entries.Add(entry);
+
+    var json = (string)ledgerType.GetMethod("Serialize")!.Invoke(null, [entries])!;
+    var back = (System.Collections.IList)ledgerType.GetMethod("Deserialize")!.Invoke(null, [json])!;
+
+    Check(back.Count == 1, "a ledger entry reads back", $"{back.Count} entry/entries");
+
+    var restored = back[0]!;
+    var runs = (int)entryType.GetProperty("Runs")!.GetValue(restored)!;
+    var restoredYield = (System.Collections.IDictionary)entryType.GetProperty("Yield")!.GetValue(restored)!;
+
+    Check(runs == 37, "the run count survives", $"{runs} run(s)");
+    Check(restoredYield.Count == 2, "yields survive", $"{restoredYield.Count} result item(s)");
+
+    // PerRun is what the whole module's verdict column is computed from.
+    var perRun = (double)entryType.GetMethod("PerRun")!.Invoke(restored, ["5111"])!;
+    Check(Math.Abs(perRun - 74.0 / 37.0) < 0.0001, "the per-run average is right", $"{perRun:F3}");
+
+    // Round-tripping HQ yields through a string key is the easiest thing here to get wrong.
+    var key = ledgerType.GetMethod("FromKey")!.Invoke(null, ["5112h"])!;
+    var isHq = (bool)key.GetType().GetProperty("HighQuality")!.GetValue(key)!;
+    Check(isHq, "an HQ yield key round-trips as HQ", "5112h");
+}
+catch (TargetInvocationException ex)
+{
+    Check(false, "ledger round-trip", ex.InnerException?.Message ?? ex.Message);
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "Config round-trip OK." : $"{failures} check(s) failed.");
 return failures == 0 ? 0 : 1;

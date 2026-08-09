@@ -6,9 +6,6 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace BuddysBuddy.Modules.BuddysChest;
 
-/// <summary>Identity of a stackable item — high quality is a distinct item for counting purposes.</summary>
-internal readonly record struct ItemKey(uint ItemId, bool HighQuality);
-
 /// <summary>A single item's presence across the whole chest.</summary>
 internal sealed class ItemTotal
 {
@@ -35,12 +32,47 @@ internal sealed class ItemTotal
 /// compartment happens to be loaded, and reports the merged totals plus which compartments have
 /// actually been seen — so a partial tally is always visibly partial rather than quietly wrong.
 /// </remarks>
-internal sealed class ChestTally
+internal sealed class ChestTally : IItemSourceProvider
 {
     private readonly Dictionary<InventoryType, List<ChestSlot>> _snapshots = new();
     private readonly Dictionary<InventoryType, DateTime> _scannedAt = new();
+    private readonly Dictionary<InventoryType, SnapshotSource> _sources = new();
 
     private List<ItemTotal>? _totals;
+
+    /// <summary>
+    /// One source per compartment, so Buddy's Stash can answer for the chest without this module
+    /// being on screen.
+    /// </summary>
+    /// <remarks>
+    /// Ids are not scoped to a particular free company — the game gives no cheap handle for that,
+    /// and the chest is cleared on open by default. Belonging to two FCs will therefore blur their
+    /// stored tallies together; the live reading is always correct.
+    /// </remarks>
+    public IEnumerable<IItemSource> GetSources() => _sources.Values;
+
+    private SnapshotSource SourceFor(InventoryType page)
+    {
+        if (!_sources.TryGetValue(page, out var source))
+            _sources[page] = source = new SnapshotSource(
+                $"fc:{FreeCompanyChest.PageOrder(page)}", FreeCompanyChest.PageLabel(page), "Free company");
+
+        return source;
+    }
+
+    /// <summary>Totals for one compartment, for the source view.</summary>
+    private static Dictionary<ItemKey, int> Fold(List<ChestSlot> slots)
+    {
+        var map = new Dictionary<ItemKey, int>();
+
+        foreach (var slot in slots)
+        {
+            var key = new ItemKey(slot.ItemId, slot.HighQuality);
+            map[key] = map.GetValueOrDefault(key) + slot.Quantity;
+        }
+
+        return map;
+    }
 
     /// <summary>Compartments with a snapshot, in tab order.</summary>
     public IEnumerable<InventoryType> ScannedPages
@@ -75,15 +107,16 @@ internal sealed class ChestTally
 
             var slots = FreeCompanyChest.ReadPage(page);
 
+            // Every successful read counts as having seen the compartment, even an unchanged one.
+            _scannedAt[page] = DateTime.Now;
+            // FC gil hangs off the first compartment only, so a sum over sources counts it once.
+            SourceFor(page).Update(Fold(slots), page == FreeCompanyChest.ItemPages[0] ? FreeCompanyChest.GetGil() : 0);
+
             // Replace rather than merge: this compartment's current contents are authoritative.
             if (_snapshots.TryGetValue(page, out var previous) && SameContents(previous, slots))
-            {
-                _scannedAt[page] = DateTime.Now;
                 continue;
-            }
 
             _snapshots[page] = slots;
-            _scannedAt[page] = DateTime.Now;
             changed = true;
         }
 
@@ -189,6 +222,7 @@ internal sealed class ChestTally
     {
         _snapshots.Clear();
         _scannedAt.Clear();
+        _sources.Clear();
         _totals = null;
     }
 
@@ -197,6 +231,7 @@ internal sealed class ChestTally
     {
         _snapshots.Remove(page);
         _scannedAt.Remove(page);
+        _sources.Remove(page);
         _totals = null;
     }
 }
