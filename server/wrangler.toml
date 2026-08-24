@@ -7,7 +7,7 @@ compatibility_date = "2026-08-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "buddys-jobs"
-database_id = "REPLACE_WITH_THE_ID_WRANGLER_PRINTS"
+database_id = "13568d51-68dd-4742-a09b-d5a07e6c5d6a"
 
 # No secrets are needed. Boards authenticate with a join code the server only ever sees hashed,
 # so there is nothing here to leak and nothing to rotate but the codes themselves.
