@@ -209,6 +209,66 @@ catch (TargetInvocationException ex)
     Check(false, "ledger round-trip", ex.InnerException?.Message ?? ex.Message);
 }
 
+// The trade ledger is the most irreplaceable file of the lot: a desynthesis can be repeated, but
+// there is no history of trades anywhere in the game to read back if this stops loading.
+Console.WriteLine("\nTrade ledger");
+try
+{
+    var ledgerType = plugin.GetType("BuddysBuddy.Modules.BuddysLedger.TradeLedger")!;
+    var recordType = plugin.GetType("BuddysBuddy.Modules.BuddysLedger.TradeRecord")!;
+    var lineType = plugin.GetType("BuddysBuddy.Modules.BuddysLedger.TradeLine")!;
+    var evidenceType = plugin.GetType("BuddysBuddy.Modules.BuddysLedger.TradeEvidence")!;
+
+    var record = Activator.CreateInstance(recordType)!;
+    recordType.GetProperty("At")!.SetValue(record, new DateTime(2026, 8, 23, 14, 30, 0));
+    recordType.GetProperty("Character")!.SetValue(record, "Some Body");
+    recordType.GetProperty("ContentId")!.SetValue(record, (ulong)0x1234_5678_9ABC_DEF0);
+    recordType.GetProperty("Partner")!.SetValue(record, "Other Person");
+    recordType.GetProperty("PartnerWorld")!.SetValue(record, "Zodiark");
+    recordType.GetProperty("GilReceived")!.SetValue(record, 1_500_000L);
+    recordType.GetProperty("Evidence")!.SetValue(record, Enum.Parse(evidenceType, "Disputed"));
+
+    var line = Activator.CreateInstance(lineType)!;
+    lineType.GetProperty("ItemId")!.SetValue(line, (uint)5112);
+    lineType.GetProperty("HighQuality")!.SetValue(line, true);
+    lineType.GetProperty("Quantity")!.SetValue(line, 99);
+    ((System.Collections.IList)recordType.GetProperty("Given")!.GetValue(record)!).Add(line);
+
+    var records = (System.Collections.IList)Activator.CreateInstance(
+        typeof(List<>).MakeGenericType(recordType))!;
+    records.Add(record);
+
+    var json = (string)ledgerType.GetMethod("Serialize")!.Invoke(null, [records])!;
+    var back = (System.Collections.IList)ledgerType.GetMethod("Deserialize")!.Invoke(null, [json])!;
+
+    Check(back.Count == 1, "a trade reads back", $"{back.Count} trade(s)");
+
+    var restored = back[0]!;
+    var gil = (long)recordType.GetProperty("GilReceived")!.GetValue(restored)!;
+    var given = (System.Collections.IList)recordType.GetProperty("Given")!.GetValue(restored)!;
+
+    Check(gil == 1_500_000L, "gil survives the round-trip", $"{gil:N0}");
+    Check(given.Count == 1, "traded stacks survive", $"{given.Count} stack(s)");
+
+    // Short JSON names on TradeLine are the easiest thing here to break by renaming a property.
+    var hq = (bool)lineType.GetProperty("HighQuality")!.GetValue(given[0]!)!;
+    var qty = (int)lineType.GetProperty("Quantity")!.GetValue(given[0]!)!;
+    Check(hq && qty == 99, "an HQ stack round-trips as HQ", $"{qty}x, hq={hq}");
+
+    // Evidence is stored by name, so reordering the enum must not silently reinterpret old files.
+    var evidence = recordType.GetProperty("Evidence")!.GetValue(restored)!.ToString();
+    Check(evidence == "Disputed", "evidence round-trips by name", evidence!);
+    Check(json.Contains("\"Disputed\""), "evidence is stored as a name, not an ordinal");
+
+    // Partner identity is what every cumulative total is grouped by.
+    var key = (string)recordType.GetProperty("PartnerKey")!.GetValue(restored)!;
+    Check(key == "Other Person@Zodiark", "partner identity keeps the world", key);
+}
+catch (TargetInvocationException ex)
+{
+    Check(false, "trade ledger round-trip", ex.InnerException?.Message ?? ex.Message);
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "Config round-trip OK." : $"{failures} check(s) failed.");
 return failures == 0 ? 0 : 1;
