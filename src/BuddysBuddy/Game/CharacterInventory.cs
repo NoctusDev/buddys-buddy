@@ -19,9 +19,6 @@ namespace BuddysBuddy.Game;
 /// </remarks>
 public sealed unsafe class CharacterInventory : IItemSourceProvider
 {
-    /// <summary>Gil's item id — counted out of the bags rather than read from a currency container.</summary>
-    private const uint GilItemId = 1;
-
     private static readonly InventoryType[] SaddlebagPages =
         [InventoryType.SaddleBag1, InventoryType.SaddleBag2];
 
@@ -58,7 +55,7 @@ public sealed unsafe class CharacterInventory : IItemSourceProvider
 
         sources.Rename(name);
 
-        sources.Bags.Update(PlayerInventory.Snapshot(PlayerInventory.Bags), CountGil());
+        sources.Bags.Update(PlayerInventory.Snapshot(PlayerInventory.Bags), PlayerInventory.CountGil());
         sources.Crystals.Update(PlayerInventory.Snapshot([InventoryType.Crystals]), 0);
 
         if (IsSaddlebagOpen())
@@ -74,35 +71,6 @@ public sealed unsafe class CharacterInventory : IItemSourceProvider
             yield return character.Crystals;
             yield return character.Saddlebag;
         }
-    }
-
-    /// <summary>
-    /// The character's gil.
-    /// </summary>
-    /// <remarks>
-    /// Read out of the <c>Currency</c> container rather than through
-    /// <c>GetInventoryItemCount</c>, which searches the bags and would report nothing — gil does not
-    /// sit in a bag slot. The count lookup is kept as a fallback for the moment before that
-    /// container has loaded.
-    /// </remarks>
-    private static long CountGil()
-    {
-        var manager = InventoryManager.Instance();
-        if (manager is null)
-            return 0;
-
-        var container = manager->GetInventoryContainer(InventoryType.Currency);
-        if (container is not null && container->IsLoaded)
-        {
-            for (var i = 0; i < container->Size; i++)
-            {
-                var item = container->GetInventorySlot(i);
-                if (item is not null && item->ItemId == GilItemId)
-                    return item->Quantity;
-            }
-        }
-
-        return PlayerInventory.CountItem(GilItemId, highQuality: false);
     }
 
     private static bool IsSaddlebagOpen()

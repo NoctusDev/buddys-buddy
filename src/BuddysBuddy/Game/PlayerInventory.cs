@@ -9,6 +9,9 @@ namespace BuddysBuddy.Game;
 /// <remarks>Must be called from the game thread.</remarks>
 public static unsafe class PlayerInventory
 {
+    /// <summary>Gil's item id. It sits in the <c>Currency</c> container, never in a bag slot.</summary>
+    public const uint GilItemId = 1;
+
     public static readonly InventoryType[] Bags =
     [
         InventoryType.Inventory1, InventoryType.Inventory2,
@@ -143,6 +146,34 @@ public static unsafe class PlayerInventory
         }
 
         return gained;
+    }
+
+    /// <summary>
+    /// The character's gil.
+    /// </summary>
+    /// <remarks>
+    /// Read out of the <c>Currency</c> container rather than through <c>GetInventoryItemCount</c>,
+    /// which searches bag slots and would report nothing — gil does not occupy one. The count
+    /// lookup stays as a fallback for the moment before that container has loaded.
+    /// </remarks>
+    public static long CountGil()
+    {
+        var manager = InventoryManager.Instance();
+        if (manager is null)
+            return 0;
+
+        var container = manager->GetInventoryContainer(InventoryType.Currency);
+        if (container is not null && container->IsLoaded)
+        {
+            for (var i = 0; i < container->Size; i++)
+            {
+                var item = container->GetInventorySlot(i);
+                if (item is not null && item->ItemId == GilItemId)
+                    return item->Quantity;
+            }
+        }
+
+        return CountItem(GilItemId, highQuality: false);
     }
 
     /// <summary>
