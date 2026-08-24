@@ -29,3 +29,7 @@ reference/
 *.log
 err.txt
 logs.zip
+
+# Node (server/)
+node_modules/
+.wrangler/

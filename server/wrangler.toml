@@ -1,0 +1,13 @@
+name = "buddys-jobs"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# The database id is filled in by `npx wrangler d1 create buddys-jobs`, which prints it.
+# It is not a secret — it names a database only reachable through this worker's own bindings.
+[[d1_databases]]
+binding = "DB"
+database_name = "buddys-jobs"
+database_id = "REPLACE_WITH_THE_ID_WRANGLER_PRINTS"
+
+# No secrets are needed. Boards authenticate with a join code the server only ever sees hashed,
+# so there is nothing here to leak and nothing to rotate but the codes themselves.

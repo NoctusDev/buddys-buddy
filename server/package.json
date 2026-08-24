@@ -1,0 +1,15 @@
+{
+  "name": "buddys-jobs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The shared jobs board for Buddy's Buddy.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/board.test.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "sql.js": "^1.11.0"
+  }
+}
