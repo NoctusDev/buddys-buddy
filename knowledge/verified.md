@@ -429,6 +429,51 @@ the worker (9.17 KiB) and resolves the D1 binding with no complaints. So wrangle
 The shape of the mistake: a tool's *latest* version refusing to run is not the same as the *task*
 being blocked, and one command settled it. Re-check the installed Node before trusting any of this.
 
+### ✅ Deployed, 2026-08-24 — and three traps on the way
+
+`[external]` Account **Noctusdev@gmail.com**, subdomain `noctusdev`, worker live at
+**`https://buddys-jobs.noctusdev.workers.dev`**, D1 `buddys-jobs` = `13568d51-68dd-4742-a09b-d5a07e6c5d6a`
+(region WNAM). 14/14 live end-to-end checks pass against it. All of this is account state and rots.
+
+**1. ⚠ Cloudflare blocks generic scripting User-Agents with `error code: 1010`.** This is the one
+worth remembering, because it makes a working server look broken:
+
+| User-Agent | Result |
+| --- | --- |
+| `Python-urllib/3.13` | **403, `error code: 1010`** |
+| `BuddysBuddy/1.0` (what the plugin sends) | 200 |
+| `curl/8.0`, `Mozilla/5.0`, none at all | 200 |
+
+The plugin is unaffected — `JobBoardClient` sets its own product header, which is exactly why it
+passes. But **any diagnostic script must set a User-Agent** or it will report a dead board. A test
+harness silently testing the bot-protection rules instead of the API is a very convincing wrong
+answer.
+
+**2. A new `workers.dev` subdomain has no TLS certificate for a few minutes.** The symptom is not an
+HTTP error — nothing answers at all:
+
+```
+curl: (35) OpenSSL/1.1.1t: ... sslv3 alert handshake failure
+SSL alert number 40
+```
+
+DNS resolves fine and other hosts work, so it reads like a broken deploy. `openssl s_client
+-connect <host>:443 -servername <host>` shows the handshake dying with 7 bytes read and no cipher,
+which is the tell: the server has no certificate for that SNI **yet**. It cleared within a minute.
+Wait and retry rather than debugging the worker.
+
+**3. The onboarding URL wrangler prints 404s.** `wrangler deploy` fails on a fresh account with
+*"You need to register a workers.dev subdomain"* and links to `/workers/onboarding`, which no longer
+exists in the current dashboard. There is nothing to choose: **opening Workers & Pages once creates
+the subdomain automatically**, and Cloudflare's own API says so where wrangler does not —
+
+```
+GET /accounts/{id}/workers/subdomain
+→ 10007: "Opening the Workers & Pages landing page for the first time will create one automatically."
+```
+
+Asking the API beat both the CLI's advice and guessing at dashboard menus.
+
 It does not block development: `server/test/board.test.js` runs the real worker's `fetch` against a
 D1-shaped shim over `sql.js` (SQLite as wasm, pure JS, fine on Node 20). 32 checks, all passing —
 routing, board hashing, isolation between boards, the claim race, partial and over-delivery, and
