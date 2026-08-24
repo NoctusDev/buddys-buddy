@@ -15,6 +15,8 @@ self-contained *module* inside one assembly, with its own tab, its own settings,
 | **Buddy's Chest** | `/bb chest` | Tallies the whole free company chest and withdraws every unit of a chosen item |
 | **Buddy's Slaves** | `/bb slaves` | Tallies every retainer and withdraws a shopping list of items, top to bottom |
 | **Buddy's Desynther** | `/bb desynth` | Desynthesises the game's whole list in one button and records the yields |
+| **Buddy's Ledger** | `/bb ledger` | Records every trade, and what each player has given you in total |
+| **Buddy's Jobs** | `/bb jobs` | A shared board of requests — post one, claim someone else's, mark it delivered |
 
 ### Buddy's Stash
 
@@ -220,6 +222,75 @@ code, and each has a timeout that stops with a plain reason.
 your desynthesis levels — to `pluginConfigs/BuddysBuddy/desynth-probe-<timestamp>.txt`. Run it at
 each stage of a real desynthesis and those three questions answer themselves. Details in
 [knowledge/verified.md](knowledge/verified.md).
+
+### Buddy's Ledger
+
+Every trade you make, and — the actual point — **what each person has handed over in total, across
+every trade you have ever done with them.** One trade is a receipt; a hundred is a picture of who
+actually supplies you.
+
+Three views:
+
+- **Players** — one row per person: how many trades, items in, items out, net gil, when you last
+  dealt with them. Pick a row for the full item-by-item breakdown both ways.
+- **History** — every trade, newest first, with a note you can attach after the fact.
+- **Items** — every item that has ever crossed the table, both directions, everyone together.
+
+A player is identified by **name *and* world**, not name alone — the same name exists on every other
+world, and cross-world trades are ordinary.
+
+#### How a trade is read
+
+Out of the game's own trade window, through `InventoryManager` — `TradeItemsLocal`,
+`TradeItemsRemote`, `TradePartnerNameString` and the `TradeState` machine. No chat parsing, so it is
+not affected by your chat settings or your language.
+
+**What gets written down is the change in your own bags**, measured either side of the trade. The
+window says what was *offered*; only your bags show what actually *arrived*, so the window is used to
+*check* the record rather than to be it. Every row's numbers come from the same place; the marker
+only says how well corroborated that row is:
+
+| Row | Means |
+| --- | --- |
+| *(nothing)* | The window and your bags agreed. |
+| `!` | They disagreed. Your bags were recorded, and the log holds both versions. |
+| `~` | The window was never seen with both sides locked in, so there was nothing to check against. The amounts are no less accurate. |
+
+Same arrangement as the desynthesis ledger, for the same reason: a quietly wrong ledger is worse than
+no ledger. Only trades made while the plugin was running can be counted — there is no trade history
+anywhere in the game to read back, which is also why the ledger saves the moment a trade lands rather
+than on a timer (measured at 66 ms after the game's own "Trade complete").
+
+`trade-ledger.json` in the plugin's own folder · **Export to CSV** for a spreadsheet ·
+`/bb ledger <name>` for one person · `/bb ledger probe` writes a diagnostic report.
+
+### Buddy's Jobs
+
+A shared board: post *"I need 500 iron ore"*, and anyone with the same board key can see it, take it,
+and mark it delivered. Built for the case where several people are gathering or crafting for the same
+person and nobody can tell what is already covered.
+
+**This is the one module that talks to a server**, because it has to. Dalamud's IPC reaches other
+plugins on the same client, never other players — so two people's plugins genuinely cannot see each
+other without something in the middle. [`server/`](server/) is that something: a Cloudflare Worker
+and a D1 database you deploy once, free, in about five minutes. Its README has the steps.
+
+It is **off by default** and sends nothing at all until you enter a board key.
+
+- **Partial deliveries are the normal case.** Anything short of the full amount adds to a running
+  total and puts the remainder back on the board, so three people can fill one order of 500 between
+  them and the next person sees what is actually left.
+- **Two people claiming at once is settled by the database**, not the client — one conditional
+  `UPDATE`, one winner, and the loser is told who beat them rather than silently overwriting.
+- **"You have"** reads the same `IItemSource` spine as Buddy's Stash, so a job shows how many you
+  already own before you decide whether to take it.
+- A board key shorter than 16 characters is refused by the server. It is the only thing standing
+  between a stranger and the board.
+
+What leaves your machine: the character name and world you act as, and the items you ask for or
+deliver. Nothing else, and only to the server you configured.
+
+`/bb jobs` lists what is open · `/bb jobs refresh` · `/bb jobs test` checks the connection.
 
 ## Installing in game
 

@@ -17,8 +17,9 @@ migration table, Actions being locked) live in [`dalamud.md`](dalamud.md). **Rea
 | `%AppData%\XIVLauncher\addon\Hooks\dev` | ❌ stale decoy | The SDK's default. Five months old, wrong API level |
 | `d:\Multibox\Glumishxiv3\dalamud.log` | ✅ the live log | Where plugin load errors actually appear |
 | `d:\Multibox\Glumishxiv3\pluginConfigs\BuddysBuddy.json` | ✅ live plugin config | |
-| `D:\Buddy's Buddy\src\BuddysBuddy\bin\Debug\BuddysBuddy.dll` | ✅ correct dev-plugin path | Build output; `BuddysBuddy.json` sits beside it |
-| `D:\Buddy's Buddy\src\BuddysBuddy\bin\Debug` | ❌ rejected by Dalamud | Folder path → *"not a valid path to a potential Dev Plugin"*. Dalamud wants the **DLL** |
+| `D:\CLAUDE\Buddy's Buddy\src\BuddysBuddy\bin\Debug\BuddysBuddy.dll` | ✅ **the dev-plugin path** (2026-08-23) | Build output; `BuddysBuddy.json` sits beside it |
+| `D:\Buddy's Buddy\src\BuddysBuddy\bin\Debug\BuddysBuddy.dll` | ❌ **gone — the repo moved into `D:\CLAUDE\`** | Was correct until 2026-08-23. The old folder is now `D:\Buddy's Buddy.rar` |
+| `…\bin\Debug` (either root) | ❌ rejected by Dalamud | Folder path → *"not a valid path to a potential Dev Plugin"*. Dalamud wants the **DLL** |
 | `%AppData%\XIVLauncher\devPlugins\` | ❌ deprecated | The folder's own `DONT_USE_THIS_FOLDER.txt` says to use Dev Plugin Locations instead |
 | `%AppData%\XIVLauncher\addon\Hooks\dev\` | ✅ Dalamud dev assemblies | What `Dalamud.NET.Sdk` resolves against; build log prints `Dalamud.NET.Sdk: root at …` |
 | `src/BuddysBuddy/bin/Debug/` | ✅ flat output | The Dalamud SDK does **not** nest under a `net10.0-windows/` TFM folder |
@@ -210,6 +211,220 @@ and starts empty.
 `SourceStore.Serialize`/`Deserialize` are deliberately pure and free of any Dalamud service so
 `scripts/verify-config.cs` can round-trip them outside the game — including the check that a
 restored source reports `IsLive == false`.
+
+---
+
+## Trade API (Buddy's Ledger)
+
+`[metadata]` — read off the live `FFXIVClientStructs.dll` (7.55.1.8875) with `MetadataLoadContext`
+on **2026-08-23**. Signatures and visibility are exact; behaviour is marked where it is not.
+
+The whole trade is on **`InventoryManager`**, which needs no addon open and no pointer into the UI.
+
+| Symbol | Signature / value | Public? |
+| --- | --- | --- |
+| `InventoryManager.TradeItemsLocal` / `TradeItemsRemote` | `Span<InventoryItem>` — **6 slots each** | ✅ |
+| `InventoryManager.TradeLocalState` / `TradeRemoteState` | `TradeState` | ✅ |
+| `InventoryManager.TradePartnerNameString` | `string` (raw field `_tradePartnerName`, `FixedSizeArray32<byte>`) | ✅ |
+| `InventoryManager.TradePartnerEntityId` | `uint` | ✅ |
+| `InventoryManager.TradeIsSyncPending` / `TradeWarnIfMovedTooFar` | `bool` | ✅ |
+| `InventoryManager.TradeLockedIn` | `bool` | ❌ **private — CS0122** |
+| `InventoryManager.SendTradeRequest(uint entityId)` / `SetTradeGilAmount(uint)` / `RefuseTrade()` | | ✅ |
+| `TradeState` | `NotTrading=1, TradeRequestPending=2, SelectingTradeGoods=3, LockedIn=4, WaitingForConfirmation=5, Confirmed=6` | |
+| `AgentId.Trade` | **36** (`NpcTrade` 38, `TradeMultiple` 149) | |
+| Addon name | **`Trade`** (type `AddonTrade`) | |
+
+Two **UI arrays** exist alongside it, both `Instance()` statics, valid only while the addon is up:
+
+| Symbol | Notes |
+| --- | --- |
+| `TradeNumberArray.SendGilCount` / `ReceiveGilCount` | `uint` — **the gil** |
+| `TradeNumberArray.SelfState` / `OtherState` / `IsLockedIn` | the readable stand-in for the private `TradeLockedIn` |
+| `TradeNumberArray.ItemsGive` / `ItemsReviece` *(sic)* | `Span<TradeItem>` — **`IconId`, not `ItemId`**. Useless for identifying an item |
+| `TradeStringArray.OwnName` / `TradePartnerName` | `CStringPointer` |
+
+**`TradeNumberArray.TradeItem` carries an icon id, not an item id.** That is the trap: it looks like
+the obvious place to read a trade from and cannot answer what the item *is*.
+`InventoryManager.TradeItemsLocal/Remote` are real `InventoryItem`s — `ItemId`, `Quantity`, `Flags`
+(HQ) — and are the only readable source of item identity.
+
+**There is no `InventoryType` for trade.** Trade contents are not a container; the full enum was
+dumped and checked.
+
+### ❌ No installed plugin on this machine reads the trade window
+
+`[observed]` **2026-08-23.** Grepping all 83 installed plugin DLLs for `AddonTrade`, `TradeState`,
+`TradeNumberArray` and `TradePartnerNameString` returned **nothing** — including TrackyTrack, which
+covers desynthesis and coffers but not trades. The method was sanity-checked first against
+`BuddysBuddy.dll`, which correctly returned `AgentSalvage`, `InventoryManager` and `SalvageDialog`,
+so the empty result is real and not a broken grep.
+
+So the corroboration used for `FreeCompanyChest`, `InputNumeric` and `SalvageDialog` is **not
+available here** — the metadata is the only source. Note that .NET string *literals* are UTF-16 in
+the `#US` heap and will not match an ASCII grep; type and member names are UTF-8 in `#Strings` and
+will.
+
+### ✅ Settled in game — three live trades, 2026-08-23
+
+`[in-game]` `/bb ledger probe` run three times across two real trades on this machine. Raw dumps in
+`pluginConfigs/BuddysBuddy/trade-probe-20260823-*.txt`.
+
+**1. ⚠ Gil in the trade slots is ASYMMETRIC — corrected 2026-08-23 by a later trade.**
+
+*Their* gil is remote slot `[5]` as item id 1, agreeing with `ReceiveGilCount` exactly, and the slot
+is present with quantity 0 when none is offered:
+
+```
+TradeItemsRemote:  [5] 1 x1000000        ReceiveGilCount : 1000000
+TradeItemsRemote:  [5] 1 x0              ReceiveGilCount : 0
+```
+
+**Your own gil is not in your slots at all.** With 69 gil on the table from this side:
+
+```
+TradeItemsLocal:   [5] empty             SendGilCount    : 69
+```
+
+The first two probes only ever *received* gil, so "gil is trade slot 5" was recorded as a general
+rule from one direction of evidence. It is half true. **Reading the slots alone would record every
+gil payment you make as zero.** The two-source design is what caught it — the plugin logged it
+itself on the first trade that paid any:
+
+```
+[INF] [BuddysBuddy] Trade gil (given): 69 came from the trade array only — no gil in the item slots.
+```
+
+So: prefer the slot where it exists (it outlives the addon), fall back to the array, and never
+assume one covers both directions.
+
+**2. ⚠ `TradeLocalState` is never observed as `Confirmed`.** The decisive dump:
+
+```
+TradeLocalState  : WaitingForConfirmation (5)
+TradeRemoteState : Confirmed (6)
+```
+
+The trade then completed. **A `both == Confirmed` test never fires**, which is exactly what happened:
+the first build marked both real trades `Reconstructed` because it was waiting for a state the local
+side does not reach. Use **both `>= LockedIn`** as the "the deal is settled" line instead.
+
+**3. The partner's half of the window carries no container, but it does carry flags.**
+
+```
+[0] 7018 x115  container=Invalid slot=0  flags=None            ← an NQ item
+[0] 5074 x329  container=Invalid slot=0  flags=HighQuality     ← an HQ item, a later trade
+```
+
+Your own side reports real containers (`container=Inventory1 slot=33`); the partner's is always
+`Invalid`, which makes sense — their items are not in any container of yours.
+
+❌ **Corrected.** This entry first read *"there is no usable high-quality flag on the remote side"*,
+inferred from `flags=None` across two trades that, as it turned out, simply contained no HQ items.
+The first trade that did contain one reported `flags=HighQuality` correctly. **Absence of a flag was
+read as absence of the feature** — the same shape of error as the desynthesis item-level rule, on a
+smaller scale.
+
+The design conclusion it was used to justify — inventory as the record, window as the cross-check —
+still holds, but on the honest reason: the window says what was *offered*, and only your bags show
+what actually *arrived*. The wrong reason was written into a doc comment as justification and has
+been corrected there too.
+
+**4. `TradeNumberArray.SelfState` / `OtherState` are not `TradeState`.** They ran 2/3 while
+`TradeState` read 3/4, and 3/3 while it read 5/6 — a different, coarser scale. Do not compare them.
+`IsLockedIn` did flip true when both sides locked in.
+
+**5. Two further independent signals exist**, neither needed but both worth knowing:
+- **`ConditionFlag.TradeOpen`** — visible in `dalamud.log` as BossModReborn's
+  `Condition change: TradeOpen=True/False`. A Dalamud-level "is a trade window open" with no
+  pointers involved.
+- **"Trade complete." is a toast**, not only a chat line — Questionable logged
+  `Normal Toast: Trade complete.` A third record beyond the window and the inventory.
+
+**6. Timing: the inventory settles fast.** The record was saved **66 ms** after the "Trade complete."
+toast (`20:46:29.105` → `20:46:29.171`), so three consecutive matching reads is plenty and the 4 s
+settle cap is a generous backstop rather than a limit anyone will hit.
+
+Both trades recorded the correct contents — 115x7018, 2x5095, 4x19938, 3x5061, 1x8148 + 1,000,000
+gil, and 4,995x5116 across five stacks — proving the inventory-diff path independently of the window.
+
+### ✅ The two-way trade — everything else confirmed, 2026-08-23 21:05
+
+One trade closed every remaining gap at once. Gave 4,995x5116 **and** 69 gil, received 329x5074 HQ
+and 273x5059 HQ. Recorded as:
+
+```
+EVIDENCE=Confirmed   gil given=69  gil received=0
+GAVE:      item 5116 x4995 hq=False
+RECEIVED:  item 5074 x329 hq=True
+           item 5059 x273 hq=True
+```
+
+| Path | Result |
+| --- | --- |
+| `TradeEvidence.Confirmed` | ✅ The both-`LockedIn` fix works — window and bags agreed, no marker. |
+| **Giving** items (negative deltas) | ✅ 4,995 units across five 999-stacks, recorded as one line. |
+| **Giving gil** | ✅ 69, and only because the array was read — see the asymmetry above. |
+| **HQ items** | ✅ Both received stacks recorded `hq=true`, off the bag diff. |
+| Folding quality in `Agrees` | ✅ Vindicated. The window and the diff describe stacks differently; comparing by item id and total is what let a mixed HQ/NQ trade come out `Confirmed`. |
+
+Still unseen, and neither can lose a trade:
+
+- **`TradeEvidence.Disputed`** — no evidence it can be produced at all. That is the intended outcome.
+- **Trading the same item in both directions at once** — the known limit of a net diff; it would
+  cancel out. Rare enough to accept, and it would show as a dispute if the window disagreed.
+
+### Design notes that came out of the above
+
+- **The trade window empties on completion**, so nothing is read at commit time. The last reading
+  taken at the highest combined `TradeState` rank is kept, guarded so an *empty* reading never
+  replaces a non-empty one — that guard is what stops the window clearing erasing the trade.
+- **State returning to `NotTrading` proves the window closed, not that the server moved anything.**
+  The commit waits for the inventory diff to be identical three ticks running, with a 4 s cap.
+  Same lesson as `FireCallbackInt` returning true without closing anything.
+- **The window is preferred over the inventory when both sides confirmed** — it is the deal as
+  struck, HQ flags included, where a diff only shows net movement and would fold a stack you gave
+  into one you already had. The inventory still decides whether the trade happened at all.
+- Ticked **every framework update**, not on an interval: the confirmed-to-closed window is a handful
+  of frames wide, and it is a few pointer reads until a trade is actually open.
+- `IObjectTable.SearchByEntityId(uint)` → `IPlayerCharacter.HomeWorld.ValueNullable?.Name` resolves
+  the partner's world. Resolve it early — it is only answerable while they are loaded. A partner is
+  keyed `Name@World`; a bare name is not an identity.
+
+---
+
+## Cross-player communication (Buddy's Jobs)
+
+`[metadata]` **2026-08-23.** **Dalamud IPC is same-client only.** It reaches other plugins in the
+same game process and nothing else, so no arrangement of `ICallGateProvider` can let two players'
+plugins see each other. Anything shared between players needs a server. This is a premise worth
+stating rather than rediscovering: several plausible-sounding designs die on it immediately.
+
+Precedent on this machine: Mare-style sync plugins (`LightlessSync`) and `SonarPlugin` both run
+central servers for exactly this reason.
+
+`server/` is a Cloudflare Worker plus D1. Decisions worth keeping:
+
+- **A board is a shared secret and nothing else** — no accounts. The server stores only the join
+  code's SHA-256, so the database cannot be used to join a board.
+- **Claim races are resolved by a conditional `UPDATE`** (`WHERE state = 'open'`), not by the
+  client. Exactly one caller gets `changes === 1`; the loser gets a 409 naming the winner. No
+  read-then-write window exists to lose.
+- **Partial delivery is the normal case**, not an edge case: anything short of the target increments
+  a running total and returns the job to `open` for the remainder.
+- `/v1/health` answers **unauthenticated** on purpose, so "the server is down" and "the board key is
+  wrong" cannot be mistaken for each other — the MarketTraveler lesson about probing whether a call
+  actually answers.
+
+### ⚠ `[external]` Wrangler 4 needs Node ≥ 22; this machine has **20.12.2**
+
+`[observed]` **2026-08-23**, on this PC. `npx wrangler@latest` installs but warns
+`EBADENGINE required: { node: '>=22.0.0' }`. **Deploying the worker needs a Node upgrade first.**
+This is an environment fact and it rots — re-check the installed Node before trusting it.
+
+It does not block development: `server/test/board.test.js` runs the real worker's `fetch` against a
+D1-shaped shim over `sql.js` (SQLite as wasm, pure JS, fine on Node 20). 32 checks, all passing —
+routing, board hashing, isolation between boards, the claim race, partial and over-delivery, and
+permissions. `npm install && npm test` in `server/`.
 
 ---
 
@@ -423,6 +638,99 @@ making possible.
 ---
 
 ## Log
+
+### 2026-08-23 — Buddy's Ledger, third pass: two of my own confirmed entries were wrong
+A single two-way trade with HQ items and gil in both directions. The module came out **`Confirmed`**
+with every figure correct — and disproved two things this file had recorded as settled one pass
+earlier.
+
+- **"Gil is trade slot 5"** — true for *their* gil, false for *yours*, which never appears in the
+  local slots and lives only in `SendGilCount`. Recorded as a general rule from two trades that both
+  happened to be receive-only. **A rule inferred from one direction of evidence is a rule about that
+  direction.** No harm done, because the code read both sources rather than the one the note claimed
+  was sufficient — and it logged the discrepancy itself the moment it mattered.
+- **"The partner's slots carry no HQ flag"** — false. Inferred from `flags=None` on two trades that
+  contained no HQ items; the first HQ trade reported `flags=HighQuality` correctly. Absence of a
+  flag read as absence of the feature, which is the desynthesis item-level mistake in miniature.
+
+Both had been written into doc comments as *justification for a design decision*, which is the part
+worth flinching at: the decision (inventory as record, window as cross-check) is still right, but it
+was being defended with a false premise. Corrected in the code and here.
+
+The general form, and the reason this pass cost nothing: **the code hedged where the notes did not.**
+Reading both gil sources and comparing them was justified in the notes as "not settled yet" — and
+that hedge is what survived the note being wrong.
+
+### 2026-08-23 — Buddy's Ledger, second pass: the probe paid for itself immediately
+Two real trades, three probes. Every open question closed, and one design decision reversed.
+
+- **Gil rides in trade slot `[5]` as item id 1**, agreeing exactly with `TradeNumberArray`. The guess
+  was right, and it is now measured rather than assumed.
+- **The both-confirmed test was wrong and would never have fired.** `TradeLocalState` sits at
+  `WaitingForConfirmation` while the remote reads `Confirmed`, and the trade completes from there.
+  Both real trades were consequently filed as `Reconstructed`. Changed to both `>= LockedIn`.
+  **This is the value of a first run**: the logic was defensible on paper and simply false, and the
+  fallback is the only reason no data was lost.
+- **Reversed which source is authoritative.** The window was primary because it "is the deal as
+  struck, HQ flags included". The probe showed the partner's slots report `flags=None` and
+  `container=Invalid` — *there are no HQ flags to include*. The inventory diff reads your own bags,
+  where quality is certain, so it is now the record and the window is the cross-check. This is the
+  same conclusion the desynthesis ledger reached, arrived at from the opposite direction.
+- The `!`/`~` markers now mean what they should: `~` is "no window reading to compare against", not
+  "these numbers are shaky" — the numbers come from the same place on every row.
+
+Lesson worth keeping: **an unverified premise dressed as a design rationale is still unverified.**
+"The window has HQ flags" was written into a doc comment as justification and was never true.
+
+### 2026-08-23 — the dev-plugin path went stale when the repo moved
+**Symptom:** the in-game plugin showed six modules after two more were built and the build was
+green. Nothing was wrong with the build.
+
+**Cause:** the repo moved from `D:\Buddy's Buddy\` into `D:\CLAUDE\Buddy's Buddy\` (the old folder is
+now `D:\Buddy's Buddy.rar`), and Dalamud's **Dev Plugin Locations** still pointed at the old path. A
+dev plugin that cannot be found is not an error the player sees — Dalamud simply carries on with the
+**installed release**, which was v0.2.0 and genuinely has six modules. A stale dev path and a
+working-but-old plugin look identical in game.
+
+**How it was found:** the live log said it in one line, which is the whole lesson —
+
+```
+[ERR] [PluginManager] Dev plugin path D:\Buddy's Buddy\src\BuddysBuddy\bin\Debug\BuddysBuddy.dll does not exist
+[INF] [BuddysBuddy] Buddy's Buddy loaded with 6 module(s).
+```
+
+**This is rule 4 again, in a new costume.** The dev path was recorded as a ✅ confirmed fact in this
+file and in `buddys-buddy-overlay/knowledge/verified.md`, and it was true when written. Paths on
+disk rot exactly like account and service state does — **anything naming an absolute path is an
+environment fact with a shelf life**, and moving a folder invalidates it silently.
+
+Also stale, found while checking: `dalamudConfig.json` → `DevPluginLoadLocations` now holds only the
+one dead Buddy's Buddy entry. The MarketTraveler and DragAndDropTexturing entries recorded in
+`d:\CLAUDE\knowledge\machine.md` are gone. Corrected there too.
+
+**Check when a plugin looks out of date:** compare the version and module count in the log against
+what was built, and confirm the dev path resolves, *before* suspecting the code.
+
+### 2026-08-23 — Buddy's Ledger and Buddy's Jobs, first pass
+- **The game hands over the whole trade.** `InventoryManager` carries both sides' items, both
+  `TradeState`s, the partner's name and their entity id — no addon pointer, no chat parsing. Probed
+  offline with `MetadataLoadContext` before a line of code was written, which is what turned up the
+  two traps: `TradeNumberArray.TradeItem` holds an **icon** id rather than an item id, and
+  `TradeLockedIn` is private (the only member of the set that is, and the one compile error in the
+  first build).
+- **No corroboration available.** Every other addon name here was cross-checked against installed
+  plugins; nothing installed reads the trade window at all. Grep method verified against a known-good
+  DLL first, so the empty result is a finding rather than a broken search.
+- **Gil's location in the trade is still open** — the item array is 6 slots wide for a 5-slot window.
+  Both candidate readings are kept side by side and compared rather than one being picked, which is
+  the arrangement that caught the missing crystals in the desynthesis ledger.
+- **Dalamud IPC cannot reach another player**, so the jobs board needed a server. Cloudflare Worker
+  plus D1, with claim races decided by a conditional `UPDATE` rather than by the client.
+- **Wrangler 4 will not run on this machine's Node 20.12.2.** Caught before deploy day. The worker is
+  tested instead against real SQLite through a D1 shim — 32 checks, all passing.
+- Shared out of the modules while writing them: `PlayerInventory.CountGil()` (was a private copy in
+  `CharacterInventory`) and `GameItems.Search()`, which indexes the item sheet once because posting a
+  job means naming something you do **not** own.
 
 ### 2026-08-05 — Buddy's Desynther, seventh pass
 - **The eligibility rule was `GetClassJobLevel(classJobId, false) >= 30` all along.** Four passes
