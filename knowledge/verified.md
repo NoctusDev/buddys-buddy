@@ -415,11 +415,19 @@ central servers for exactly this reason.
   wrong" cannot be mistaken for each other — the MarketTraveler lesson about probing whether a call
   actually answers.
 
-### ⚠ `[external]` Wrangler 4 needs Node ≥ 22; this machine has **20.12.2**
+### ⚠ `[external]` Wrangler 4 needs Node ≥ 22; this machine has **20.12.2** — but wrangler 3 is fine
 
 `[observed]` **2026-08-23**, on this PC. `npx wrangler@latest` installs but warns
-`EBADENGINE required: { node: '>=22.0.0' }`. **Deploying the worker needs a Node upgrade first.**
-This is an environment fact and it rots — re-check the installed Node before trusting it.
+`EBADENGINE required: { node: '>=22.0.0' }`.
+
+❌ **"Deploying the worker needs a Node upgrade first" was wrong.** That was written from the
+`EBADENGINE` warning alone, without checking whether an earlier wrangler would do the job.
+**`npx wrangler@3` runs on Node 20** — 3.114.17 verified, and `wrangler deploy --dry-run` bundles
+the worker (9.17 KiB) and resolves the D1 binding with no complaints. So wrangler is pinned to
+`^3.114.17` in `server/package.json` and no Node change is needed.
+
+The shape of the mistake: a tool's *latest* version refusing to run is not the same as the *task*
+being blocked, and one command settled it. Re-check the installed Node before trusting any of this.
 
 It does not block development: `server/test/board.test.js` runs the real worker's `fetch` against a
 D1-shaped shim over `sql.js` (SQLite as wasm, pure JS, fine on Node 20). 32 checks, all passing —

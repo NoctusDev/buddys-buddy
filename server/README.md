@@ -26,14 +26,19 @@ code and the jobs are unreachable. Generate one that is worth keeping —
 Once, from this folder:
 
 ```bash
-npm install -g wrangler          # or npx wrangler for a one-off
-wrangler login                   # opens a browser, free Cloudflare account
+npm install                      # installs the pinned wrangler and the test harness
+npx wrangler login               # opens a browser, free Cloudflare account
 
-wrangler d1 create buddys-jobs   # prints database_id — paste it into wrangler.toml
-wrangler d1 execute buddys-jobs --remote --file=schema.sql
+npx wrangler d1 create buddys-jobs   # prints database_id — paste it into wrangler.toml
+npm run schema                       # creates the table in the remote database
 
-wrangler deploy                  # prints the URL to paste into the plugin
+npm run deploy                       # prints the URL to paste into the plugin
 ```
+
+> **Wrangler is pinned to 3.x on purpose.** Wrangler 4 requires Node ≥ 22, and the machine this was
+> written on runs Node 20 — `npx wrangler@latest` installs and then refuses with `EBADENGINE`.
+> Wrangler 3 deploys the same worker and the same D1 schema perfectly well. If Node ever moves past
+> 22, `npm install --save-dev wrangler@4` and drop this note.
 
 The URL it prints (`https://buddys-jobs.<your-subdomain>.workers.dev`) is what goes into the
 module's **Server** box, and the join code into its **Board key** box. Nothing else is configured.

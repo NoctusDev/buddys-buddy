@@ -7,9 +7,11 @@
   "scripts": {
     "test": "node test/board.test.js",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "schema": "wrangler d1 execute buddys-jobs --remote --file=schema.sql"
   },
   "devDependencies": {
-    "sql.js": "^1.11.0"
+    "sql.js": "^1.11.0",
+    "wrangler": "^3.114.17"
   }
 }
