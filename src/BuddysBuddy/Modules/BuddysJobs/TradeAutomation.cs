@@ -20,7 +20,22 @@ internal static unsafe class TradeAutomation
         var values = stackalloc AtkValue[2];
         values[0] = new AtkValue { Type = AtkValueType.Int, Int = 2 };
         values[1] = new AtkValue();
-        return addon->FireCallback(2, values, true);
+        // FireCallback's return value is not an acknowledgement of the UI side effect.
+        // The entry state machine observes InputNumeric on subsequent framework ticks.
+        addon->FireCallback(2, values, true);
+        return true;
+    }
+
+    public static bool ConfirmGilInput(int amount)
+    {
+        if (amount < 0 || amount > DeliveryPlan.MaxTradeGil) return false;
+        var addon = DalamudServices.GameGui.GetAddonByName<AtkUnitBase>(QuantityPrompt.AddonName, 1);
+        if (addon is null || !addon->IsVisible) return false;
+        var value = stackalloc AtkValue[1];
+        value[0] = new AtkValue { Type = AtkValueType.Int, Int = amount };
+        addon->FireCallback(1, value, true);
+        // Success is verified by the numeric dialog closing and the trade's gil changing.
+        return true;
     }
     public static bool ClickTrade()
     {

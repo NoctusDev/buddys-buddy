@@ -175,11 +175,11 @@ internal sealed unsafe class JobReceiving : IDisposable
             {
                 case GilEntryStep.Open:
                     Status = $"Opening the trade's gil box for {payment:N0} gil…";
-                    if (!TradeAutomation.OpenGilInput()) throw new InvalidOperationException("Could not open the trade's gil input");
+                    if (!TradeAutomation.OpenGilInput()) throw new InvalidOperationException("The trade window is not ready for gil entry");
                     return;
                 case GilEntryStep.Confirm:
                     Status = $"Entering {_gilEntry.Amount:N0} gil; waiting for the trade offer to update…";
-                    if (!QuantityPrompt.Confirm(_gilEntry.Amount)) throw new InvalidOperationException("Could not confirm the trade's gil input");
+                    if (!TradeAutomation.ConfirmGilInput(_gilEntry.Amount)) throw new InvalidOperationException("The trade's gil input is no longer visible");
                     return;
                 case GilEntryStep.Blocked:
                     Status = "Close the other quantity dialog so automatic payment can open the trade's gil box.";

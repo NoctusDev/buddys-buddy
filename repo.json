@@ -3,7 +3,7 @@
     "Author": "NoctusDev",
     "Name": "Buddy's Buddy",
     "InternalName": "BuddysBuddy",
-    "AssemblyVersion": "0.4.2.0",
+    "AssemblyVersion": "0.4.3.0",
     "Description": "Buddy's Buddy is a host for small, self-contained modules. Each module is its own mini-plugin with its own tab, settings and commands, and can be enabled or disabled independently.\n\nBuddy's Bag empties the chocobo saddlebag into your inventory.\nBuddy's Chest tallies the whole free company chest and withdraws every unit of a chosen item.\nBuddy's Slaves tallies every retainer and withdraws a shopping list of items, taking as much as each retainer can supply before moving on.\nBuddy's Desynther desynthesises from your bags and armoury chest and keeps a ledger of the yields.\nBuddy's Stash searches everything you own, everywhere it is, from one box.\nBuddy's Purse totals your gil across character, retainers and the free company chest.\nBuddy's Ledger records every trade and totals what each player has given you over all of them.\nBuddy's Jobs is an opt-in shared board of requests — post one, claim someone else's, mark it delivered. It is off by default and talks to a server you deploy yourself.",
     "Punchline": "A pocketful of small plugins in one.",
     "ApplicableVersion": "any",
