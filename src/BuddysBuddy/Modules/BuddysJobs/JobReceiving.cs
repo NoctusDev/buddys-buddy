@@ -159,8 +159,11 @@ internal sealed unsafe class JobReceiving : IDisposable
             var manager = InventoryManager.Instance();
             if (manager is null) return;
             var stable = DateTime.UtcNow - _stable >= TimeSpan.FromSeconds(1);
+            // Editing gil is what can clear/reset an empty locked offer's synchronization state.
+            // Waiting for that state to clear before opening the input can deadlock payment.
+            // Keep the sync check before acceptance, after the entered amount is acknowledged.
             var step = _gilEntry.Next(DateTime.UtcNow, trade.Given.Gil, payment,
-                stable && trade.LocalState == TradeState.SelectingTradeGoods && !manager->TradeIsSyncPending,
+                stable && trade.LocalState is TradeState.SelectingTradeGoods or TradeState.LockedIn,
                 QuantityPrompt.IsOpen());
             if (_lastGilStep != step)
             {
@@ -186,7 +189,7 @@ internal sealed unsafe class JobReceiving : IDisposable
                     Status = "The gil input did not update the trade offer. Waiting stopped; no trade was accepted.";
                     return;
                 case GilEntryStep.Wait:
-                    Status = $"Preparing {payment:N0} gil; {trade.Given.Gil:N0} gil currently offered…";
+                    Status = $"Preparing {payment:N0} gil; {trade.Given.Gil:N0} gil currently offered ({trade.LocalState})…";
                     return;
             }
             if (!stable || manager->TradeIsSyncPending) return;

@@ -64,6 +64,8 @@ Automatic payment opens the trade window's own gil input, confirms the exact amo
 that amount to appear in the offer before accepting. It does not use the direct inventory-manager
 gil setter. The payment status shows whether the dialog is opening, entry is being confirmed, or
 the trade is still awaiting the entered amount. Another already-open quantity dialog is left alone.
+Gil entry is allowed while selecting goods or editing a locked offer. It does not wait for the
+trade's sync flag before editing; that check applies before accepting the completed offer instead.
 **Stop waiting for delivery** or `/bb jobs stop` stops receiving. An interrupted or uncertain
 payment leaves a receiving record for review; it does not automatically repay after a reload.
 
