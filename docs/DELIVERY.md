@@ -59,6 +59,11 @@ were paid differently before using automatic payment on their remainder.
 Both sides verify actual item/gil inventory changes. Only the **sender** updates the delivered
 amount on the board after the material and payment trades finish. The receiver stays armed across
 trades and stops once it sees that board update, so delivery credit is never added twice.
+
+Automatic payment opens the trade window's own gil input, confirms the exact amount, and waits for
+that amount to appear in the offer before accepting. It does not use the direct inventory-manager
+gil setter. The payment status shows whether the dialog is opening, entry is being confirmed, or
+the trade is still awaiting the entered amount. Another already-open quantity dialog is left alone.
 **Stop waiting for delivery** or `/bb jobs stop` stops receiving. An interrupted or uncertain
 payment leaves a receiving record for review; it does not automatically repay after a reload.
 

@@ -81,4 +81,35 @@ for (var q = 1; q <= 25; q++)
 }
 Check(true, "prorated payments remain exact across 25 different delivery splits");
 Check(DeliveryPlan.PaymentBatchLimit(0, int.MaxValue, 0, int.MaxValue) == int.MaxValue, "batch search does not overflow on large quantities");
+var now = new DateTime(2026, 10, 31, 0, 0, 0, DateTimeKind.Utc);
+var entry = new TradeGilEntry();
+Check(entry.Next(now, 0, 1_000_000, true, false) == GilEntryStep.Open, "payment opens the game's gil dialog rather than changing a backing field");
+Check(entry.Next(now.AddMilliseconds(250), 0, 1_000_000, true, false) == GilEntryStep.Wait, "opening does not repeatedly fire the gil callback while the dialog loads");
+Check(entry.Next(now.AddMilliseconds(500), 0, 1_000_000, true, true) == GilEntryStep.Confirm && entry.Amount == 1_000_000,
+    "owned gil dialog confirms the exact capped payment");
+Check(entry.Next(now.AddMilliseconds(750), 0, 1_000_000, true, false) == GilEntryStep.Wait,
+    "trade acceptance waits for the entered gil to appear in the offer");
+Check(entry.Next(now.AddSeconds(1), 1_000_000, 1_000_000, true, false) == GilEntryStep.Ready,
+    "trade can proceed only after the offered amount matches");
+entry = new TradeGilEntry();
+Check(entry.Next(now, 0, 500, true, true) == GilEntryStep.Blocked, "unrelated numeric dialog is never filled as payment");
+Check(entry.Next(now, 0, 500, false, false) == GilEntryStep.Wait, "unstable or locked trade cannot open a payment dialog");
+Check(entry.Next(now, 0, 500, true, false) == GilEntryStep.Open
+    && entry.Next(now.AddSeconds(6), 0, 500, true, false) == GilEntryStep.TimedOut,
+    "missing gil dialog fails visibly rather than waiting silently");
+entry = new TradeGilEntry();
+entry.Next(now, 0, 500, true, false);
+Check(entry.Next(now.AddMilliseconds(500), 0, 750, true, true) == GilEntryStep.Confirm && entry.Amount == 750,
+    "changed incoming quantity uses the current prorated payment before submitting");
+Check(entry.Next(now.AddSeconds(6), 0, 750, true, false) == GilEntryStep.TimedOut,
+    "an unacknowledged payment never authorizes trade acceptance");
+entry = new TradeGilEntry();
+Check(entry.Next(now, 500, 0, true, false) == GilEntryStep.Open
+    && entry.Next(now.AddMilliseconds(500), 500, 0, true, true) == GilEntryStep.Confirm && entry.Amount == 0,
+    "payment can be cleared to zero when the offer changes");
+entry = new TradeGilEntry();
+Check(entry.Next(now, 0, 0, true, false) == GilEntryStep.Ready, "gift delivery needs no gil-entry dialog");
+var rejected = false;
+try { entry.Next(now, 0, 1_000_001, true, false); } catch (ArgumentOutOfRangeException) { rejected = true; }
+Check(rejected, "gil input itself rejects amounts above one million");
 Console.WriteLine($"{checks} delivery checks passed.");

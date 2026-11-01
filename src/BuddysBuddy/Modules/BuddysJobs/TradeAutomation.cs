@@ -1,4 +1,5 @@
 using System;
+using BuddysBuddy.Game;
 using BuddysBuddy.Services;
 using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.UI;
@@ -11,6 +12,16 @@ internal static unsafe class TradeAutomation
 {
     private static DateTime _nextTradeClick;
     private static DateTime _nextConfirmation;
+    public static bool OpenGilInput()
+    {
+        var addon = DalamudServices.GameGui.GetAddonByName<AtkUnitBase>("Trade", 1);
+        if (addon is null || !addon->IsVisible || QuantityPrompt.IsOpen()) return false;
+        // Trade's gil button callback: action 2 followed by an empty AtkValue.
+        var values = stackalloc AtkValue[2];
+        values[0] = new AtkValue { Type = AtkValueType.Int, Int = 2 };
+        values[1] = new AtkValue();
+        return addon->FireCallback(2, values, true);
+    }
     public static bool ClickTrade()
     {
         if (DateTime.UtcNow < _nextTradeClick) return false;

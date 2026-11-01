@@ -42,6 +42,8 @@ internal sealed unsafe class JobReceiving : IDisposable
     private bool _stop;
     private int _beforeItems;
     private long _beforeGil;
+    private TradeGilEntry _gilEntry = new();
+    private GilEntryStep? _lastGilStep;
     private ItemKey Key => new(_job!.ItemId, _job.HighQuality);
     private long Owed => DeliveryPlan.Payment(_total, _job!.Quantity, _job.Delivered, _received) - _paid;
 
@@ -119,6 +121,8 @@ internal sealed unsafe class JobReceiving : IDisposable
                 _units = 0;
                 _gil = 0;
                 _fingerprint = "";
+                _gilEntry = new TradeGilEntry();
+                _lastGilStep = null;
                 _receipt = null;
                 _beforeGil = PlayerInventory.CountGil();
                 _beforeItems = PlayerInventory.Snapshot(PlayerInventory.Bags).GetValueOrDefault(Key);
@@ -153,14 +157,39 @@ internal sealed unsafe class JobReceiving : IDisposable
                 else { _journal.PendingUnits = units; _journal.PendingGil = payment; _journal.Save(); }
             }
             var manager = InventoryManager.Instance();
-            if (manager is null || manager->TradeIsSyncPending) return;
-            if (trade.Given.Gil != payment)
+            if (manager is null) return;
+            var stable = DateTime.UtcNow - _stable >= TimeSpan.FromSeconds(1);
+            var step = _gilEntry.Next(DateTime.UtcNow, trade.Given.Gil, payment,
+                stable && trade.LocalState == TradeState.SelectingTradeGoods && !manager->TradeIsSyncPending,
+                QuantityPrompt.IsOpen());
+            if (_lastGilStep != step)
             {
-                if (trade.LocalState == TradeState.SelectingTradeGoods)
-                    manager->SetTradeGilAmount((uint)payment);
-                return;
+                DalamudServices.Log.Debug("Receiving payment: step={Step}, units={Units}, wanted={Wanted}, offered={Offered}, local={Local}, syncPending={SyncPending}",
+                    step, units, payment, trade.Given.Gil, trade.LocalState, manager->TradeIsSyncPending);
+                _lastGilStep = step;
             }
-            if (DateTime.UtcNow - _stable < TimeSpan.FromSeconds(1)) return;
+            switch (step)
+            {
+                case GilEntryStep.Open:
+                    Status = $"Opening the trade's gil box for {payment:N0} gil…";
+                    if (!TradeAutomation.OpenGilInput()) throw new InvalidOperationException("Could not open the trade's gil input");
+                    return;
+                case GilEntryStep.Confirm:
+                    Status = $"Entering {_gilEntry.Amount:N0} gil; waiting for the trade offer to update…";
+                    if (!QuantityPrompt.Confirm(_gilEntry.Amount)) throw new InvalidOperationException("Could not confirm the trade's gil input");
+                    return;
+                case GilEntryStep.Blocked:
+                    Status = "Close the other quantity dialog so automatic payment can open the trade's gil box.";
+                    return;
+                case GilEntryStep.TimedOut:
+                    Stop();
+                    Status = "The gil input did not update the trade offer. Waiting stopped; no trade was accepted.";
+                    return;
+                case GilEntryStep.Wait:
+                    Status = $"Preparing {payment:N0} gil; {trade.Given.Gil:N0} gil currently offered…";
+                    return;
+            }
+            if (!stable || manager->TradeIsSyncPending) return;
             Status = $"Receiving {units:N0} units; paying {payment:N0} gil this trade. Balance after payment: {due - payment:N0} gil.";
             // The sender locks only after finishing all stacks. Offer payment first so it can do so.
             if (trade.RemoteState >= TradeState.LockedIn && trade.LocalState is TradeState.SelectingTradeGoods or TradeState.LockedIn)
