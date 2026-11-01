@@ -42,6 +42,14 @@ public sealed class BuddysJobsModule : ModuleBase
     private static readonly Vector4 Done = new(0.6f, 0.6f, 0.6f, 1f);
 
     private JobBoardClient _client = null!;
+    private JobDelivery _delivery = null!;
+    private JobReceiving _receiving = null!;
+    private Job? _receivingDraft;
+    private bool _reviewedReceiving;
+    private Job? _deliveryDraft;
+    private string _deliveryRoute = string.Empty;
+    private int _deliveryEstateChoice;
+    private bool _reviewedDelivery;
     private BuddysJobsConfig _settings = null!;
 
     private string _status = string.Empty;
@@ -70,11 +78,15 @@ public sealed class BuddysJobsModule : ModuleBase
         _keyDraft = _settings.BoardKey;
 
         _client = new JobBoardClient(() => _settings);
+        _delivery = new JobDelivery(_client, Actor, () => _settings);
+        _receiving = new JobReceiving(_client, Actor, () => _settings);
         _client.Start();
     }
 
     protected override void OnUnload()
     {
+        _delivery?.Dispose();
+        _receiving?.Dispose();
         _client?.Dispose();
         _client = null!;
     }
@@ -129,6 +141,8 @@ public sealed class BuddysJobsModule : ModuleBase
 
         var state = _client.State;
         DrawHeader(state);
+        DrawDelivery();
+        DrawReceiving();
 
         if (ImGui.BeginTabBar("##jobtabs"))
         {
@@ -235,6 +249,7 @@ public sealed class BuddysJobsModule : ModuleBase
 
         ImGui.Spacing();
 
+        using var connectionDisabled = ImRaii.Disabled(_delivery.Active || _receiving.Active);
         if (ImGui.Button("Save and connect"))
         {
             _settings.ServerUrl = _serverDraft.Trim();
@@ -246,13 +261,13 @@ public sealed class BuddysJobsModule : ModuleBase
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Test the server"))
-            Fire(_client.Ping());
+        if (ImGui.Button("Test connection"))
+            Fire(Test());
 
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(
-                "Checks the address only, without the board key.\n" +
-                "Separates \"the server is down\" from \"the key is wrong\".");
+                "Checks the saved server address, then reads your board using the saved key.\n" +
+                "Click Save and connect first to apply edited values.");
     }
 
     /// <summary>Pings, then reads the board — so a wrong key and a wrong address report differently.</summary>
@@ -401,7 +416,7 @@ public sealed class BuddysJobsModule : ModuleBase
         var actor = Actor();
 
         // Nothing is actionable without a character to act as, and an unknown state is never acted on.
-        using var disabled = ImRaii.Disabled(actor.Length == 0);
+        using var disabled = ImRaii.Disabled(actor.Length == 0 || _delivery.Active || _receiving.Active);
 
         switch (job.State)
         {
@@ -419,6 +434,23 @@ public sealed class BuddysJobsModule : ModuleBase
                 break;
 
             case JobState.Claimed:
+                if (IsMine(job.PostedBy) && !IsMine(job.ClaimedBy))
+                {
+                    if (ImGui.SmallButton("Waiting for delivery"))
+                    { _receivingDraft = job; _deliveryDraft = null; }
+                }
+                if (IsMine(job.ClaimedBy) && !IsMine(job.PostedBy))
+                {
+                    using (ImRaii.Disabled(_delivery.Active))
+                    {
+                        if (ImGui.SmallButton("Auto-deliver"))
+                        {
+                            _deliveryDraft = job;
+                            _deliveryRoute = _settings.DeliveryRoutes.GetValueOrDefault(job.PostedBy, string.Empty);
+                            _deliveryEstateChoice = _settings.DeliveryEstateChoices.GetValueOrDefault(job.PostedBy);
+                        }
+                    }
+                }
                 if (IsMine(job.ClaimedBy) || IsMine(job.PostedBy))
                 {
                     if (ImGui.SmallButton("Delivered"))
@@ -457,6 +489,7 @@ public sealed class BuddysJobsModule : ModuleBase
     /// </remarks>
     private void DrawDeliverPanel()
     {
+        if (_delivery.Active || _receiving.Active) return;
         var job = _delivering;
         if (job is null)
             return;
@@ -488,6 +521,90 @@ public sealed class BuddysJobsModule : ModuleBase
         ImGui.SameLine();
         if (ImGui.Button("Never mind", new Vector2(110, 0)))
             _delivering = null;
+    }
+
+    private void DrawDelivery()
+    {
+        if (_delivery.Status.Length > 0)
+            ImGui.TextWrapped(_delivery.Status);
+        if (_delivery.Active)
+        {
+            if (ImGui.SmallButton("Stop delivery")) _delivery.Stop();
+            ImGui.Separator();
+            return;
+        }
+        if (DeliveryJournal.Exists)
+        {
+            ImGui.TextWrapped(DeliveryJournal.Summary());
+            ImGui.Checkbox("I checked the trade and corrected the job's delivered amount", ref _reviewedDelivery);
+            using (ImRaii.Disabled(!_reviewedDelivery))
+                if (ImGui.SmallButton("Clear reviewed delivery"))
+                {
+                    DeliveryJournal.Clear();
+                    _reviewedDelivery = false;
+                }
+            ImGui.Separator();
+            return;
+        }
+        if (_receiving.Active || _deliveryDraft is not { } job) return;
+        ImGui.TextWrapped($"Deliver up to {job.Remaining:N0}x {LocalName(job)} to {job.PostedBy}.");
+        ImGui.TextWrapped("Uses matching materials in your bags. The recipient must be nearby after arrival and accept each trade.");
+        ImGui.SetNextItemWidth(300);
+        ImGui.InputTextWithHint("Housing route", "optional Lifestream housing alias", ref _deliveryRoute, 128);
+        if (string.IsNullOrWhiteSpace(_deliveryRoute))
+            ImGui.Combo("Friend's destination", ref _deliveryEstateChoice, "First available\0Private estate\0Free company estate\0Apartment\0");
+        ImGui.TextWrapped("Leave the route blank for automatic Friends List estate teleport through Lifestream (2.6.0.12 or newer). First available prefers a private estate, then an apartment, then an FC estate. Wait near the arrival point.");
+        if (ImGui.Button("Start delivery"))
+        {
+            _settings.DeliveryRoutes[job.PostedBy] = _deliveryRoute.Trim();
+            _settings.DeliveryEstateChoices[job.PostedBy] = _deliveryEstateChoice;
+            Config.Save();
+            _delivery.Start(job, _deliveryRoute, _deliveryEstateChoice);
+            _delivering = null;
+            _deliveryDraft = null;
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Dismiss delivery")) _deliveryDraft = null;
+        ImGui.Separator();
+    }
+
+    private void DrawReceiving()
+    {
+        if (_receiving.Status.Length > 0) ImGui.TextWrapped(_receiving.Status);
+        if (_receiving.Active)
+        {
+            if (ImGui.SmallButton("Stop waiting for delivery")) _receiving.Stop();
+            ImGui.Separator();
+            return;
+        }
+        if (ReceivingJournal.Exists)
+        {
+            ImGui.TextWrapped("An earlier receiving/payment session needs review. Check the items, gil paid, and board before clearing it.");
+            if (ImGui.CollapsingHeader("Receiving record"))
+            {
+                try { ImGui.TextWrapped(ReceivingJournal.Summary()); }
+                catch (Exception) { ImGui.TextWrapped("Could not read jobs-receiving-pending.json."); }
+            }
+            ImGui.Checkbox("I checked the received items, payments, and job", ref _reviewedReceiving);
+            using (ImRaii.Disabled(!_reviewedReceiving))
+                if (ImGui.SmallButton("Clear reviewed receiving record"))
+                { ReceivingJournal.Clear(); _reviewedReceiving = false; }
+            ImGui.Separator();
+            return;
+        }
+        if (_delivery.Active || _receivingDraft is not { } job) return;
+        if (DeliveryPlan.TryTotalGil(job.Reward, out var total))
+        {
+            var pay = DeliveryPlan.Payment(total, job.Quantity, job.Delivered, job.Remaining);
+            ImGui.TextWrapped($"Wait for {job.ClaimedBy}: up to {job.Remaining:N0}x {LocalName(job)}, paying up to {pay:N0} gil for the remainder.");
+            ImGui.TextWrapped("Reward is the total for the entire job. Each delivery is paid proportionally, at most 1,000,000 gil per trade. Extra gil-only trades pay any balance. Only the exact claimant and requested items are accepted.");
+            if (ImGui.Button("Start waiting and auto-pay"))
+            { _receiving.Start(job); _receivingDraft = null; _delivering = null; }
+            ImGui.SameLine();
+        }
+        else ImGui.TextWrapped("Automatic payment requires a numeric total Reward, for example 5,000,000 gil. This job's free-text reward needs manual payment.");
+        if (ImGui.Button("Dismiss waiting setup")) _receivingDraft = null;
+        ImGui.Separator();
     }
 
     private void DrawPostForm()
@@ -530,7 +647,8 @@ public sealed class BuddysJobsModule : ModuleBase
         ImGui.Checkbox("High quality only", ref _highQuality);
 
         ImGui.SetNextItemWidth(300);
-        ImGui.InputTextWithHint("Reward", "e.g. 5,000g each, or a favour", ref _reward, 128);
+        ImGui.InputTextWithHint("Reward", "total for the job, e.g. 5,000,000 gil", ref _reward, 128);
+        ImGui.TextDisabled("Numeric gil rewards are totals. Automatic payment prorates partial deliveries.");
 
         ImGui.SetNextItemWidth(300);
         ImGui.InputTextWithHint("Note", "anything else worth saying", ref _note, 256);
@@ -635,6 +753,13 @@ public sealed class BuddysJobsModule : ModuleBase
                 Fire(Test());
                 return true;
 
+            case "stop":
+                var wasReceiving = _receiving.Active;
+                _delivery.Stop();
+                _receiving.Stop();
+                Print(wasReceiving ? _receiving.Status : _delivery.Status.Length > 0 ? _delivery.Status : "No delivery is running.");
+                return true;
+
             default:
                 return false;
         }
@@ -656,6 +781,9 @@ public sealed class BuddysJobsConfig : IModuleConfig
     /// than the jobs on the board, and it is the only thing that identifies one.
     /// </remarks>
     public string BoardKey { get; set; } = string.Empty;
+
+    public Dictionary<string, string> DeliveryRoutes { get; set; } = new();
+    public Dictionary<string, int> DeliveryEstateChoices { get; set; } = new();
 
     public bool AutoRefresh { get; set; } = true;
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -83,7 +84,8 @@ internal sealed class JobBoardClient : IDisposable
         Stop();
 
         _cts = new CancellationTokenSource();
-        _loop = Task.Run(() => PollLoop(_cts.Token));
+        var token = _cts.Token;
+        _loop = Task.Run(() => PollLoop(token));
     }
 
     public void Stop()
@@ -235,6 +237,20 @@ internal sealed class JobBoardClient : IDisposable
             ["actor"] = actor,
             ["amount"] = amount,
         }, $"Delivered {amount:N0}x {job.ItemName}.");
+
+    /// <summary>Do not add automatic delivery credit over a job somebody already changed.</summary>
+    public async Task<JobResult> CompleteVerified(Job original, int amount, string actor)
+    {
+        if (!await Refresh().ConfigureAwait(false))
+            return new JobResult(false, "Could not verify the job before recording delivery.");
+        var current = State.Jobs.FirstOrDefault(x => x.Id == original.Id);
+        if (current is null || current.State != JobState.Claimed || current.ClaimedBy != actor
+            || current.Delivered != original.Delivered || current.Quantity != original.Quantity
+            || current.ItemId != original.ItemId || current.HighQuality != original.HighQuality
+            || current.PostedBy != original.PostedBy || amount < 1 || amount > current.Remaining)
+            return new JobResult(false, "The job changed during delivery. Review it before recording the traded amount.");
+        return await Complete(current, amount, actor).ConfigureAwait(false);
+    }
 
     private static JObject Actor(string actor) => new() { ["actor"] = actor };
 

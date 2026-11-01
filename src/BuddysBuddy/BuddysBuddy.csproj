@@ -26,7 +26,7 @@
     <AssemblyName>BuddysBuddy</AssemblyName>
     <RootNamespace>BuddysBuddy</RootNamespace>
 
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>NoctusDev</Authors>
     <Description>A host plugin for a collection of small FFXIV quality-of-life modules.</Description>
   </PropertyGroup>

@@ -38,6 +38,9 @@ jobs:
       - name: Build
         run: dotnet build ${{ env.SOLUTION }} -c Release --nologo
 
+      - name: Check delivery planning and offer guards
+        run: dotnet run --project scripts/DeliveryTests/DeliveryTests.csproj
+
       # An API mismatch builds perfectly cleanly and only fails in game, so assert the
       # emitted level here rather than finding out at the login screen.
       - name: Check emitted API level

@@ -292,6 +292,14 @@ deliver. Nothing else, and only to the server you configured.
 
 `/bb jobs` lists what is open · `/bb jobs refresh` · `/bb jobs test` checks the connection.
 
+**Auto-deliver** on a job claimed by you sends materials to its requester, using Friends List estate
+teleportation or a saved Lifestream housing alias. It handles repeated trades and records verified
+deliveries on the board. See [the delivery guide](docs/DELIVERY.md) for setup and testing.
+
+**Waiting for delivery** on a job you posted accepts the named claimant's materials and pays the
+numeric Reward as a prorated total. Payments respect the 1,000,000-gil trade cap, including gil-only
+follow-up trades when needed. Both players must use the updated build for automatic coordination.
+
 ## Installing in game
 
 Dalamud settings → **Experimental** → *Custom Plugin Repositories*:
