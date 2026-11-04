@@ -33,3 +33,6 @@ logs.zip
 # Node (server/)
 node_modules/
 .wrangler/
+.build-cache/
+venue-audio/native/VenueAudio.Plugin/Tools/
+venue-audio/Ready to Install/

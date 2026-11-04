@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../VenueAudio.Core/VenueAudio.Core.csproj" />
+    <ProjectReference Include="../VenueAudio.WebRelay/VenueAudio.WebRelay.csproj" />
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <PackageReference Include="Concentus" Version="1.1.7" />
+    <Compile Include="../VenueAudio.Plugin/AudioEngine.cs" Link="AudioEngine.cs" />
+    <Compile Include="../VenueAudio.Plugin/Session.cs" Link="Session.cs" />
+    <Compile Include="../VenueAudio.Plugin/InternetHost.cs" Link="InternetHost.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: venue-audio-relay
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerfilePath: ./hosting/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: VENUE_BROADCAST_KEY
+        generateValue: true
+      - key: ASPNETCORE_URLS
+        value: http://+:10000

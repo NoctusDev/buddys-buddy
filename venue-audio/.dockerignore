@@ -1,0 +1,7 @@
+**/bin
+**/obj
+.build-cache
+Ready to Install
+.git
+node_modules
+**/*.log

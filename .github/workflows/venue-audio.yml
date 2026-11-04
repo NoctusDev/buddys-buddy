@@ -1,0 +1,107 @@
+name: Publish Venue Audio
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'venue-audio/native/**'
+      - 'venue-audio/THIRD_PARTY.md'
+      - '.github/workflows/venue-audio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: venue-audio-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Select increasing plugin version
+        run: |
+          [xml]$project = Get-Content venue-audio/native/VenueAudio.Plugin/VenueAudio.Plugin.csproj
+          $baseVersion = $project.Project.PropertyGroup.Version | Where-Object { $_ }
+          $version = "$baseVersion.${{ github.run_number }}"
+          "PLUGIN_VERSION=$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=venue-audio-v$version" >> $env:GITHUB_ENV
+      - name: Fetch Dalamud
+        run: |
+          $dalamud = Join-Path $env:RUNNER_TEMP 'dalamud'
+          Invoke-WebRequest 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile "$env:RUNNER_TEMP/dalamud.zip"
+          Expand-Archive "$env:RUNNER_TEMP/dalamud.zip" $dalamud -Force
+          "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
+      - name: Fetch verified internet helper and notices
+        run: |
+          $tools = 'venue-audio/native/VenueAudio.Plugin/Tools'
+          New-Item -ItemType Directory -Force "$tools/Licenses" | Out-Null
+          Invoke-WebRequest 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-windows-amd64.exe' -OutFile "$tools/cloudflared.exe"
+          $hash = (Get-FileHash "$tools/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343') { throw 'Tunnel binary checksum mismatch.' }
+          Invoke-WebRequest 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.7/LICENSE' -OutFile "$tools/Licenses/cloudflared-Apache-2.0.txt"
+          Invoke-WebRequest 'https://raw.githubusercontent.com/naudio/NAudio/v2.2.1/license.txt' -OutFile "$tools/Licenses/NAudio-MIT.txt"
+          Invoke-WebRequest 'https://raw.githubusercontent.com/lostromb/concentus/master/LICENSE' -OutFile "$tools/Licenses/Concentus-BSD.txt"
+      - name: Package self-contained background host
+        run: |
+          dotnet publish venue-audio/native/VenueAudio.WebRelay/VenueAudio.WebRelay.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true '-p:PublishDir=../VenueAudio.Plugin/Tools/Relay/'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test protocol, encryption and sessions
+        run: |
+          dotnet run --project venue-audio/native/VenueAudio.Tests/VenueAudio.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build installable plugin
+        run: |
+          dotnet build venue-audio/native/VenueAudio.Plugin/VenueAudio.Plugin.csproj -c Release "-p:Version=$env:PLUGIN_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $package = 'venue-audio/native/VenueAudio.Plugin/bin/Release/VenueAudio/latest.zip'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $package))
+          try {
+            $names = @($zip.Entries.FullName | ForEach-Object { $_.Replace('\','/') })
+            foreach ($required in @('VenueAudio.dll','VenueAudio.json','Concentus.dll','NAudio.Core.dll','NAudio.Wasapi.dll','NAudio.WinMM.dll','Tools/cloudflared.exe','Tools/Relay/VenueAudio.WebRelay.exe')) {
+              if ($required -notin $names) { throw "Package missing $required" }
+            }
+          } finally { $zip.Dispose() }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $package dist/VenueAudio.zip
+      - name: Publish downloadable plugin package
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Venue Audio ${{ env.PLUGIN_VERSION }}
+          prerelease: true
+          make_latest: false
+          files: dist/VenueAudio.zip
+          body: |
+            Install Venue Audio through the existing NoctusDev Buddy's Buddy custom plugin repository. No manual DLL installation is needed.
+
+            In game: choose an audio source, leave Automatic internet hosting enabled, click Broadcast, then share the complete guest invite. Guests paste the invite and click Listen. The package includes the background host and verified Cloudflare tunnel helper.
+
+            Early test build with temporary internet hosting. Its address changes each broadcast. Direct peer-to-peer transport is not implemented yet.
+      - name: Update Dalamud plugin repository after upload
+        run: |
+          ./venue-audio/native/Update-Repository.ps1 -ManifestPath venue-audio/native/VenueAudio.Plugin/bin/Release/VenueAudio.json -RepositoryPath repo.json -Tag $env:RELEASE_TAG
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add repo.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m "Publish Venue Audio $env:PLUGIN_VERSION [skip ci]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git pull --rebase origin main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
