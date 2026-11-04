@@ -35,6 +35,9 @@ public sealed class RelayServer : IAsyncDisposable
     private readonly X509Certificate2? certificate;
     private readonly Task accepting;
     private int active;
+    // Every guest is a separate copy of the stream on the host's upload, and Cloudflare Quick Tunnels
+    // stop at about 200 concurrent requests, so the cap sits below both.
+    public const int MaxListeners = 150;
     public int Port => ((IPEndPoint)listener.LocalEndpoint).Port;
     public int ListenerCount { get { lock (gate) return rooms.Values.Sum(r => r.Listeners.Count); } }
 
@@ -52,7 +55,7 @@ public sealed class RelayServer : IAsyncDisposable
             while (!lifetime.IsCancellationRequested)
             {
                 var client = await listener.AcceptTcpClientAsync(lifetime.Token);
-                if (Interlocked.Increment(ref active) > 128) { Interlocked.Decrement(ref active); client.Dispose(); continue; }
+                if (Interlocked.Increment(ref active) > MaxListeners + 16) { Interlocked.Decrement(ref active); client.Dispose(); continue; }
                 var task = HandleAsync(client);
                 connections[client] = task;
                 _ = task.ContinueWith(_ => { connections.TryRemove(client, out var ignored); Interlocked.Decrement(ref active); }, TaskScheduler.Default);
@@ -97,7 +100,7 @@ public sealed class RelayServer : IAsyncDisposable
                 else if (hello.Role == "listen")
                 {
                     if (!rooms.TryGetValue(hello.Room, out joined)) error = "This room is offline. Ask the DJ for a current invite.";
-                    else if (joined.Listeners.Count >= 64) { joined = null; error = "Room is full."; }
+                    else if (joined.Listeners.Count >= MaxListeners) { joined = null; error = "Room is full."; }
                     else joined.Listeners.Add(peer);
                 }
                 else error = "Invalid role.";

@@ -31,3 +31,18 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 -- Every read is "this board, recently changed first", so this is the only index that earns its keep.
 CREATE INDEX IF NOT EXISTS jobs_board_updated ON jobs (board, updated_at DESC);
+
+-- Venue Audio short codes. `id` is SHA-256 of the code, so a leaked table names no codes, and `blob`
+-- is the guest invite encrypted under a key derived from the code. `public_code` is set only when the
+-- host announces at a location, which makes that one venue joinable by anyone standing there.
+CREATE TABLE IF NOT EXISTS venue_codes (
+    id          TEXT PRIMARY KEY,
+    owner       TEXT NOT NULL,
+    blob        TEXT NOT NULL,
+    location    TEXT,
+    public_code TEXT,
+    expires_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS venue_codes_location ON venue_codes (location, expires_at);
+CREATE INDEX IF NOT EXISTS venue_codes_expiry ON venue_codes (expires_at);

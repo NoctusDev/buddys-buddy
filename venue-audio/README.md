@@ -22,17 +22,28 @@ Add the full DLL path under **Dalamud Settings → Experimental → Dev Plugin L
 
 ## Broadcast to friends on other networks
 
-1. Choose **Stream Mix (Elgato Virtual Audio)** or another PC audio source.
-2. Leave **Automatic internet hosting** enabled (the new default).
+1. Choose **Host**, and optionally name your venue. Guests see the name with your character name.
+2. Choose **Stream Mix (Elgato Virtual Audio)** or another PC audio source.
 3. Optionally add a microphone if your source mix does not already include it.
-4. Click **Start broadcasting**. Allow up to about a minute for a temporary public address.
-5. Click **Copy guest invite** and send the complete invite to friends with this plugin.
+4. Click **Start broadcasting**. Allow up to about a minute for a temporary public address. Automatic internet hosting is the default; other modes are under **Advanced hosting**.
+5. Click **Copy** and send the complete invite to friends with this plugin.
 
-Friends choose **Paste invite → Listen** in game. They do not need a hosting account or router changes. Listening never opens the microphone. Stop/unload closes audio capture and the host/tunnel processes. Guest volume is independent. The DJ uses a local connection; guests use the secure public tunnel.
+Friends choose **Listener → Paste → Join venue** in game. They do not need a hosting account or router changes. Listening never opens the microphone. Stop/unload closes audio capture and the host/tunnel processes. Guest volume is independent. The DJ uses a local connection; guests use the secure public tunnel.
 
 Output-device capture includes all audio on that device, including game sounds. A mixer input lets you choose what is included. Application-only capture is not implemented. Playlists/transitions remain in your music or DJ software; the plugin transmits the resulting continuous audio.
 
 Use Thunderdome's music-off setting if using its booth/effects. Penumbra and Lightless handle visuals as usual; song changes need no mod reload.
+
+## Venue codes, walk-in joining and styles
+
+- **Venue codes.** Going live reserves a six-character code (shown as `K3M-9QX`) in the venue directory, which runs beside Buddy's Jobs on the same Cloudflare Worker. Guests type the code instead of pasting the long invite. The directory stores only the code's hash and the invite encrypted under a key derived from the code. It is not end-to-end secret against whoever runs the directory, because six characters can be brute-forced offline. The eye button hides the code while you stream. If the directory is unreachable, the plugin falls back to the full invite.
+- **Announce at my venue.** When the host is inside their house, the code is also listed under that house. Listeners who walk into the house get a join prompt (or join automatically if they chose that), and walking out ends a walk-in session. This makes an announced venue joinable by anyone who enters it.
+- **Styles.** The palette button in the title bar cycles through Velvet, Midnight, Gilded and Moonstone, plus Dalamud, which uses your own Dalamud theme colours. Right-click goes back one style.
+- **Mute and quality.** Music and mic each have a mute toggle that keeps guests connected. Listeners can mute too. Sound quality runs from Voice (64 kbps) to Studio (192 kbps), and the host screen shows the upload each guest costs.
+
+## Capacity
+
+Each host runs its own relay, so 100 venues share nothing: there is no central audio server. Inside one venue, every guest is a separate copy of the stream on the host's upload. At High quality, that is about 180 kbps per guest, so 100 guests is about 18 Mbps of upload. Rooms are capped at 150 guests, below Cloudflare's roughly 200-connection limit on Quick Tunnels. Fan-out runs in the background helper process, not in the game.
 
 ## Internet hosting and encryption
 

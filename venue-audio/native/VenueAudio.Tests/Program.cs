@@ -37,6 +37,11 @@ using var receiveCipher = new AudioCipher(audioKey);
 var secretInvite = hostedInvite with { AudioKey = audioKey };
 Check(Invite.Parse(secretInvite.ToString()) == secretInvite, "encrypted invitation preserves room audio key");
 Check(!secretInvite.WebSocketEndpoint.ToString().Contains(audioKey), "room audio key is absent from server URL");
+var labelledInvite = secretInvite with { Venue = "Moonlit Café & Bar #2", HostName = "Aria Lune" };
+Check(Invite.Parse(labelledInvite.ToString()) == labelledInvite, "venue and host labels round-trip through the invite");
+Check(!labelledInvite.WebSocketEndpoint.ToString().Contains("Moonlit"), "venue label is absent from server URL");
+var hostileLabel = Invite.Parse(secretInvite.ToString() + "&v=" + Uri.EscapeDataString("Bad\nName" + new string('x', 80)));
+Check(!hostileLabel.Venue.Contains('\n') && hostileLabel.Venue.Length == Invite.MaxLabel, "invite labels drop control characters and are length-capped");
 byte[] clear = [1, 2, 3, 4, 5];
 byte[] sealedAudio = sendCipher.Encrypt(clear);
 Check(!sealedAudio.SequenceEqual(clear) && receiveCipher.Decrypt(sealedAudio).SequenceEqual(clear), "room encryption decrypts authenticated payload");
@@ -56,6 +61,28 @@ foreach (var bad in new[] { "hello", "https://example.com", "venueaudio://localh
 {
     bool rejected = false; try { Invite.Parse(bad); } catch (FormatException) { rejected = true; }
     Check(rejected, "invalid invite rejected: " + bad);
+}
+string shortCode = VenueCodes.NewCode();
+Check(VenueCodes.Normalize(shortCode) == shortCode && shortCode.Length == 6, "new venue codes are six characters from the code alphabet");
+Check(VenueCodes.Normalize(" k3m-9qx ") == "K3M9QX", "typed codes ignore case, spaces and the dash");
+Check(VenueCodes.Normalize(secretInvite.ToString()) == null && VenueCodes.Normalize("K3M9Q0") == null, "full invites and look-alike characters are not codes");
+string sealedInvite = VenueCodes.Seal(labelledInvite.ToString(), shortCode);
+Check(VenueCodes.Open(sealedInvite, shortCode) == labelledInvite.ToString(), "an invite sealed under a code opens with it");
+Check(!sealedInvite.Contains(audioKey) && !VenueCodes.LookupId(shortCode).Contains(shortCode), "the directory sees neither the code nor the audio key");
+bool wrongCodeRejected = false;
+try { VenueCodes.Open(sealedInvite, shortCode == "AAAAAA" ? "BBBBBB" : "AAAAAA"); } catch (CryptographicException) { wrongCodeRejected = true; }
+Check(wrongCodeRejected, "a different code cannot open the sealed invite");
+var fakeDirectory = new FakeDirectory();
+using (var publisher = new VenueDirectory("https://directory.test", fakeDirectory))
+using (var guest = new VenueDirectory("https://directory.test", fakeDirectory))
+{
+    string published = await publisher.PublishAsync(labelledInvite.ToString(), "1f2e3d", ct);
+    Check(await guest.ResolveAsync(published, ct) == labelledInvite.ToString(), "a guest resolves a published code to the full invite");
+    Check((await guest.AtAsync("1f2e3d", ct)).SequenceEqual([published]), "an announced code is found at its location");
+    await publisher.DeleteAsync(published, ct);
+    bool goneAfterStop = false;
+    try { await guest.ResolveAsync(published, ct); } catch (IOException) { goneAfterStop = true; }
+    Check(goneAfterStop, "a deleted code no longer resolves");
 }
 var invalidHeader = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(invalidHeader, int.MaxValue);
 bool bounded = false;
@@ -184,6 +211,16 @@ if (args.Contains("--audio"))
     await session.BroadcastAsync(source, null, true, "", "127.0.0.1");
     Check(session.Active, "broadcast restarts cleanly after stop");
     await session.StopAsync();
+
+    using var sessionDirectory = new VenueDirectory("https://directory.test", new FakeDirectory());
+    await using var codedHost = new Session(directory: sessionDirectory);
+    await codedHost.BroadcastAsync(source, null, true, "", "127.0.0.1", options: new BroadcastOptions(Venue: "Test Venue", HostName: "Test Host"));
+    Check(codedHost.Broadcasting && codedHost.Code.Length == 6, "broadcast reserves a short code in the directory");
+    await using var codedGuest = new Session(directory: sessionDirectory) { ListenMuted = true };
+    await codedGuest.ListenAsync(VenueCodes.Display(codedHost.Code).ToLowerInvariant());
+    Check(codedGuest.Active && codedGuest.Joined?.Venue == "Test Venue" && codedGuest.Joined.HostName == "Test Host", "guest joins by typing the short code and sees the venue name");
+    await codedHost.StopAsync();
+    Check(codedHost.Code.Length == 0, "stopping releases the short code");
 }
 if (args.Contains("--internet"))
 {
@@ -243,3 +280,39 @@ if (args.Contains("--internet"))
     Check(true, "automatic host closes tunnel and background server on disposal");
 }
 Console.WriteLine($"All {checks} checks passed.");
+
+/// <summary>The directory's routes and ownership rule, in memory. The real worker has its own tests in server/test.</summary>
+sealed class FakeDirectory : HttpMessageHandler
+{
+    private readonly Dictionary<string, (string Owner, string Blob, string? Location, string? Code)> rows = [];
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        string path = request.RequestUri!.AbsolutePath;
+        string owner = request.Headers.Authorization?.Parameter ?? "";
+        HttpResponseMessage Reply(HttpStatusCode status, object? body = null) => new(status)
+        {
+            Content = body == null ? null : new StringContent(System.Text.Json.JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"),
+        };
+        lock (rows)
+        {
+            if (path.StartsWith("/v1/venue/at/"))
+            {
+                string location = path["/v1/venue/at/".Length..];
+                return Reply(HttpStatusCode.OK, new { codes = rows.Values.Where(r => r.Location == location && r.Code != null).Select(r => r.Code).ToArray() });
+            }
+        }
+        string id = path["/v1/venue/codes/".Length..];
+        if (request.Method == HttpMethod.Get)
+            lock (rows) return rows.TryGetValue(id, out var row) ? Reply(HttpStatusCode.OK, new { blob = row.Blob }) : Reply(HttpStatusCode.NotFound, new { error = "none" });
+        if (request.Method == HttpMethod.Delete)
+            lock (rows) { if (rows.TryGetValue(id, out var row) && row.Owner == owner) rows.Remove(id); return Reply(HttpStatusCode.OK, new { ok = true }); }
+        using var json = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+        string? Field(string name) => json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String ? value.GetString() : null;
+        lock (rows)
+        {
+            if (rows.TryGetValue(id, out var existing) && existing.Owner != owner) return Reply(HttpStatusCode.Conflict, new { error = "taken" });
+            rows[id] = (owner, Field("blob")!, Field("location"), Field("code"));
+            return Reply(HttpStatusCode.OK, new { ok = true });
+        }
+    }
+}

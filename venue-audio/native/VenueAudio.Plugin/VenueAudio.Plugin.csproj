@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
     <AssemblyName>VenueAudio</AssemblyName><RootNamespace>VenueAudio</RootNamespace>
-    <Version>0.1.2</Version><Authors>NoctusDev</Authors><Description>Live venue audio with in-game broadcasting and listening.</Description>
-    <ImplicitUsings>enable</ImplicitUsings><Use_Dalamud_FFXIVClientStructs>false</Use_Dalamud_FFXIVClientStructs>
+    <Version>0.2.0</Version><Authors>NoctusDev</Authors><Description>Live venue audio with in-game broadcasting and listening.</Description>
+    <ImplicitUsings>enable</ImplicitUsings><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../VenueAudio.Core/VenueAudio.Core.csproj" />

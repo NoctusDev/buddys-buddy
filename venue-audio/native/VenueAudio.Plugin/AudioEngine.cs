@@ -35,15 +35,18 @@ public sealed class AudioBroadcaster : IDisposable
     private Task? pumping;
     private volatile float peak;
     private volatile float musicGain = 1, micGain = 1;
+    private volatile bool musicMuted, micMuted;
     public float Peak => peak;
     public float MusicGain { set => musicGain = value; }
     public float MicGain { set => micGain = value; }
+    public bool MusicMuted { set => musicMuted = value; }
+    public bool MicMuted { set => micMuted = value; }
     public event Action<string>? Failed;
 
-    public AudioBroadcaster(AudioDevice source, string? microphone, Action<byte[]> send)
+    public AudioBroadcaster(AudioDevice source, string? microphone, Action<byte[]> send, int bitrate = 128000)
     {
         this.send = send;
-        encoder.Bitrate = 128000;
+        encoder.Bitrate = bitrate;
         encoder.Complexity = 5;
         try
         {
@@ -84,7 +87,7 @@ public sealed class AudioBroadcaster : IDisposable
             samples = resampler.ToSampleProvider();
         }
         if (samples.WaveFormat.SampleRate != 48000) samples = new WdlResamplingSampleProvider(samples, 48000);
-        mixer.AddMixerInput(new GainProvider(samples, () => microphone ? micGain : musicGain));
+        mixer.AddMixerInput(new GainProvider(samples, () => microphone ? (micMuted ? 0 : micGain) : (musicMuted ? 0 : musicGain)));
     }
     private readonly List<IDisposable> extraResources = [];
     public void Start()
@@ -152,19 +155,29 @@ public sealed class AudioListener : IDisposable
     private readonly WaveOutEvent output = new() { DesiredLatency = 120 };
     private readonly short[] pcm = new short[11520];
     private readonly byte[] bytes = new byte[23040];
-    private bool disposed;
-    public float Volume { set { lock (gate) if (!disposed) output.Volume = Math.Clamp(value, 0, 1); } }
-    public AudioListener(float volume)
+    private bool disposed, muted;
+    private float volume;
+    private volatile float peak;
+    // What arrives, before volume or mute, so a muted test listener still shows the stream is flowing.
+    public float Peak => peak;
+    public float Volume { set { lock (gate) { volume = Math.Clamp(value, 0, 1); Apply(); } } }
+    public bool Muted { set { lock (gate) { muted = value; Apply(); } } }
+    public AudioListener(float volume, bool muted = false)
     {
-        try { output.Init(buffer); output.Volume = volume; output.Play(); }
+        this.volume = Math.Clamp(volume, 0, 1); this.muted = muted;
+        try { output.Init(buffer); Apply(); output.Play(); }
         catch { output.Dispose(); throw; }
     }
+    private void Apply() { if (!disposed) output.Volume = muted ? 0 : volume; }
     public void Receive(byte[] packet)
     {
         lock (gate)
         {
             if (disposed) return;
             int samples = decoder.Decode(packet, 0, packet.Length, pcm, 0, 5760, false);
+            int loudest = 0;
+            for (int i = 0; i < samples * 2; i++) loudest = Math.Max(loudest, Math.Abs((int)pcm[i]));
+            peak = loudest / 32768f;
             int length = samples * 2 * sizeof(short);
             Buffer.BlockCopy(pcm, 0, bytes, 0, length);
             if (buffer.BufferedDuration.TotalMilliseconds > 250) buffer.ClearBuffer();

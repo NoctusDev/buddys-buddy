@@ -692,6 +692,52 @@ making possible.
 
 ## Log
 
+### 2026-11-04 — Venue Audio: short codes, walk-in join, test listener, mute and quality
+- **`HousingManager` members confirmed by reflecting over the live `FFXIVClientStructs.dll`.** Its XML docs
+  leave most of them out, so grepping `FFXIVClientStructs.xml` is not enough. Present: `IsInside()`,
+  `GetCurrentIndoorHouseId()`, `GetCurrentWard/Plot/Room/Division()`. `HouseId` has `Id` (ulong; packs
+  world, district, ward, plot and room), `WorldId`, `TerritoryTypeId`, `WardIndex`, `PlotIndex`,
+  `RoomNumber` and `IsApartment`. The probe: a scratch net10 console app doing `Assembly.LoadFrom` with an
+  `AssemblyResolve` pointed at `Hooks\dev`.
+- **Not verified in game:** whether `GetCurrentIndoorHouseId().Id` is stable across visits and the same in
+  every room of one house (basement, upstairs). Walk-in detection keys on it.
+- Directory lives in the Buddy's Jobs worker (`/v1/venue/*`, table `venue_codes`). Worker tests: 45/45 with
+  portable Node **22.12.0 at `E:\nodejs`** (checksum-verified, npm cache at `E:\nodejs\npm-cache`).
+  **Deployed 2026-11-04**, version `680942c7-37e5-496f-ac7c-970deec21f15`, schema applied to remote D1
+  `13568d51…` (only `jobs` existed before). Live round trip checked with the plugin's own `VenueDirectory`:
+  publish, resolve, at-location, foreign-owner refresh refused, delete. `/v1/jobs` still answers 401 with no key.
+  Wrangler auth lives at `E:\nodejs\wrangler-config` (set `XDG_CONFIG_HOME` to that; it works for wrangler 3
+  on Windows). `wrangler login` times out after about 2 minutes, so a slow GitHub sign-in fails with
+  "localhost can't be reached"; just rerun it.
+- C# tests: 44/44 offline, 55/55 with `-Audio` (includes a real local broadcast joined by typed code).
+- Gotcha: `private void OnUpdate(IFramework _)` makes every `_ = task` in the body an assignment to the
+  parameter (CS0266), not a discard. Name the parameter.
+
+### 2026-11-04 — Venue Audio: new UI from Dedric's "Venue Audio flow" canvas
+- Window moved to `VenueWindow.cs`: role picker → Host / Listener, custom-drawn glow button,
+  16-segment meter, now-listening card. Compiles clean (0 warnings) against the live Dalamud;
+  **not yet seen in game.**
+- Confirmed present in API 15 by compiling: `ImRaii.PushColor(..).Push(..)`, `ImRaii.PushStyle`,
+  `ImRaii.Combo`, `ImRaii.TextWrapPos`, `ImRaii.PushFont(UiBuilder.IconFont)`,
+  `UiBuilder.MonoFontHandle.Push()`, `ImGui.InputTextWithHint`, `ImGui.SliderInt(.., "%d%%")`,
+  `ImDrawListPtr.AddText(Vector2, uint, string)`, `IPlayerState` via plugin constructor injection.
+- Invite fragment is now `#k=<key>&v=<venue>&h=<host>`, labels capped at 48 characters with control
+  characters stripped. The old `#k=` form still parses. Tests: 35/35.
+- Short keys and walk-in venue detection are deferred; both need a directory service.
+
+### 2026-11-04 — Venue Audio (`venue-audio/`): first review of the GPT-written plugin
+- `venue-audio\native\Build.ps1 -Tests` builds and passes **32/32** offline checks (invites, AES-GCM
+  tamper/replay, relay fan-out, WebSocket gateway). Not run: `-Audio` (hardware) and `-Internet`.
+- Releases are `prerelease: true, make_latest: false`. Checked via the GitHub API: `releases/latest` is
+  still `v0.4.3`, so Buddy's Buddy's `releases/latest/download/BuddysBuddy.zip` links are unaffected.
+  `VenueAudio.zip` is **61.6 MB** (self-contained WebRelay + cloudflared).
+- Every push to `venue-audio/native/**` on main cuts a release and has the bot commit `repo.json`.
+- Not yet verified in game: long-session audio stability. The capture pump is clocked by a
+  `PeriodicTimer` instead of by the capture device, and drift is handled by `ClearBuffer()` at 250 ms
+  on both ends, so expect a periodic skip over a long set until it's tested.
+- Local git refuses this repo ("dubious ownership", the folder's owner SID is from before the PC
+  reset). Worked around per command with `git -c safe.directory=...`; global config left unchanged.
+
 ### 2026-08-23 — Buddy's Ledger, third pass: two of my own confirmed entries were wrong
 A single two-way trade with HQ items and gil in both directions. The module came out **`Confirmed`**
 with every figure correct — and disproved two things this file had recorded as settled one pass

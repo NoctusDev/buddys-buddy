@@ -253,5 +253,56 @@ console.log('\nUnknown routes');
     check(badId.status === 404, 'a malformed job id is a 404', `${badId.status}`);
 }
 
+// ── Venue Audio short codes ──────────────────────────────────────────────────
+
+console.log('\nVenue codes');
+{
+    const CODE_ID = 'a'.repeat(64);
+    const HOST = '1'.repeat(64);
+    const THIEF = '2'.repeat(64);
+    const BLOB = 'c2VhbGVkIGludml0ZQ==';
+
+    const noOwner = await read(await call('PUT', `/v1/venue/codes/${CODE_ID}`, { body: { blob: BLOB } }));
+    check(noOwner.status === 401, 'publishing without an owner token is refused', `${noOwner.status}`);
+
+    const made = await read(await call('PUT', `/v1/venue/codes/${CODE_ID}`, { key: HOST, body: { blob: BLOB } }));
+    check(made.status === 200 && made.body.expiresAt > 0, 'a host publishes a code');
+
+    const got = await read(await call('GET', `/v1/venue/codes/${CODE_ID}`));
+    check(got.status === 200 && got.body.blob === BLOB, 'a guest resolves it without any token');
+
+    const stolen = await read(await call('PUT', `/v1/venue/codes/${CODE_ID}`, { key: THIEF, body: { blob: 'AAAA' } }));
+    check(stolen.status === 409, 'another owner cannot overwrite a live code', `${stolen.status}`);
+    const still = await read(await call('GET', `/v1/venue/codes/${CODE_ID}`));
+    check(still.body.blob === BLOB, 'the original invite survives the attempt');
+
+    const refreshed = await read(await call('PUT', `/v1/venue/codes/${CODE_ID}`, { key: HOST, body: { blob: BLOB } }));
+    check(refreshed.status === 200, 'the owner can refresh their own code', `${refreshed.status}`);
+
+    const unannounced = await read(await call('GET', '/v1/venue/at/1f2e3d'));
+    check(unannounced.body.codes.length === 0, 'an unannounced venue is not listed at its location');
+
+    const needsCode = await read(await call('PUT', `/v1/venue/codes/${CODE_ID}`, { key: HOST, body: { blob: BLOB, location: '1f2e3d' } }));
+    check(needsCode.status === 400, 'announcing without the public code is refused', `${needsCode.status}`);
+
+    await call('PUT', `/v1/venue/codes/${CODE_ID}`, { key: HOST, body: { blob: BLOB, location: '1f2e3d', code: 'K3M9QX' } });
+    const announced = await read(await call('GET', '/v1/venue/at/1f2e3d'));
+    check(announced.body.codes.length === 1 && announced.body.codes[0] === 'K3M9QX', 'an announced venue is listed at its location');
+
+    await call('DELETE', `/v1/venue/codes/${CODE_ID}`, { key: THIEF });
+    const afterThief = await read(await call('GET', `/v1/venue/codes/${CODE_ID}`));
+    check(afterThief.status === 200, 'another owner cannot delete it');
+
+    await call('DELETE', `/v1/venue/codes/${CODE_ID}`, { key: HOST });
+    const gone = await read(await call('GET', `/v1/venue/codes/${CODE_ID}`));
+    check(gone.status === 404, 'the owner deletes it when the broadcast stops', `${gone.status}`);
+
+    await env.DB.prepare(`INSERT INTO venue_codes (id, owner, blob, expires_at) VALUES (?1, 'x', ?2, 1)`).bind('b'.repeat(64), BLOB).run();
+    const expired = await read(await call('GET', `/v1/venue/codes/${'b'.repeat(64)}`));
+    check(expired.status === 404, 'an expired code no longer resolves', `${expired.status}`);
+    const reclaimed = await read(await call('PUT', `/v1/venue/codes/${'b'.repeat(64)}`, { key: THIEF, body: { blob: BLOB } }));
+    check(reclaimed.status === 200, 'an expired code can be reused by someone new', `${reclaimed.status}`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

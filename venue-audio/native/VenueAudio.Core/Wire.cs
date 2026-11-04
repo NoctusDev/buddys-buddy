@@ -36,9 +36,25 @@ public static class Wire
     public static bool ValidSecret(string? value) => value != null && Regex.IsMatch(value, "\\A[a-f0-9]{32}\\z");
 }
 
-public sealed record Invite(string Host, int Port, string Room, bool Tls = false, bool WebSocket = false, string AudioKey = "")
+public sealed record Invite(string Host, int Port, string Room, bool Tls = false, bool WebSocket = false, string AudioKey = "", string Venue = "", string HostName = "")
 {
-    public override string ToString() => $"{(WebSocket ? (Tls ? "venueaudiowss" : "venueaudiows") : (Tls ? "venueaudios" : "venueaudio"))}://{(Host.Contains(':') ? $"[{Host}]" : Host)}:{Port}/{Room}{(string.IsNullOrEmpty(AudioKey) ? "" : "#k=" + AudioKey)}";
+    public const int MaxLabel = 48;
+    public override string ToString() => $"{(WebSocket ? (Tls ? "venueaudiowss" : "venueaudiows") : (Tls ? "venueaudios" : "venueaudio"))}://{(Host.Contains(':') ? $"[{Host}]" : Host)}:{Port}/{Room}{Fragment()}";
+    // Labels ride in the fragment with the key so the relay never sees them either.
+    private string Fragment()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(AudioKey)) parts.Add("k=" + AudioKey);
+        if (!string.IsNullOrEmpty(Venue)) parts.Add("v=" + Uri.EscapeDataString(Venue));
+        if (!string.IsNullOrEmpty(HostName)) parts.Add("h=" + Uri.EscapeDataString(HostName));
+        return parts.Count == 0 ? "" : "#" + string.Join('&', parts);
+    }
+    public static string Label(string? value)
+    {
+        string clean = new((value ?? "").Where(c => !char.IsControl(c)).ToArray());
+        clean = clean.Trim();
+        return clean.Length > MaxLabel ? clean[..MaxLabel] : clean;
+    }
     public Uri WebSocketEndpoint => new UriBuilder(Tls ? "wss" : "ws", Host, Port, "/audio").Uri;
     public static Invite Hosted(string server, string room)
     {
@@ -57,14 +73,21 @@ public sealed record Invite(string Host, int Port, string Room, bool Tls = false
             uri.Port is < 1 or > 65535 || !Wire.ValidSecret(uri.AbsolutePath.Trim('/')) ||
             !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query))
             throw new FormatException("Paste a complete Venue Audio invite copied by the DJ.");
-        string audioKey = "";
+        string audioKey = "", venue = "", hostName = "";
         if (!string.IsNullOrEmpty(uri.Fragment))
         {
-            if (!uri.Fragment.StartsWith("#k=", StringComparison.Ordinal) || uri.Fragment.Length != 67 || !uri.Fragment[3..].All(Uri.IsHexDigit))
+            foreach (string part in uri.Fragment[1..].Split('&'))
+            {
+                int split = part.IndexOf('=');
+                string name = split < 0 ? part : part[..split], value = split < 0 ? "" : part[(split + 1)..];
+                if (name == "k") audioKey = value;
+                else if (name == "v") venue = Label(Uri.UnescapeDataString(value));
+                else if (name == "h") hostName = Label(Uri.UnescapeDataString(value));
+            }
+            if (audioKey.Length != 64 || !audioKey.All(Uri.IsHexDigit))
                 throw new FormatException("The invite's audio key is incomplete. Copy the full guest invite again.");
-            audioKey = uri.Fragment[3..];
         }
         return new Invite(uri.Host.Trim('[', ']'), uri.Port, uri.AbsolutePath.Trim('/'),
-            uri.Scheme is "venueaudios" or "venueaudiowss", uri.Scheme is "venueaudiows" or "venueaudiowss", audioKey);
+            uri.Scheme is "venueaudios" or "venueaudiowss", uri.Scheme is "venueaudiows" or "venueaudiowss", audioKey, venue, hostName);
     }
 }

@@ -17,7 +17,7 @@ public static class RelayApplication
         builder.Services.AddSingleton(_ => new RelayServer(IPAddress.Loopback, 0));
         var app = builder.Build();
         var relay = app.Services.GetRequiredService<RelayServer>();
-        var slots = new SemaphoreSlim(128, 128);
+        var slots = new SemaphoreSlim(RelayServer.MaxListeners + 16, RelayServer.MaxListeners + 16);
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(10) });
         app.MapGet("/health", () => Results.Ok(new { service = "venue-audio", version = 1 }));
         app.MapGet("/", () => Results.Text("Venue Audio relay is online. Connect using the in-game plugin. No audio is recorded."));
