@@ -2,8 +2,9 @@
   "Name": "Venue Audio",
   "Author": "NoctusDev",
   "Punchline": "Broadcast your PC audio and listen together, inside FFXIV.",
-  "Description": "Broadcast a PC audio output or mixer, optionally add your microphone, and listen together inside FFXIV. Automatic temporary internet hosting lets friends join from other networks using a guest invite. Audio is encrypted before entering the relay. Open using the plugin settings button or /venueaudio. Early test build; the temporary hosting address changes each broadcast.",
+  "Description": "Broadcast a PC audio output or mixer, optionally add your microphone, and listen together inside FFXIV. Guests join with a six-character venue code, or just by walking into an announced venue. Audio is encrypted before entering the relay. Open using the plugin settings button or /venueaudio.",
   "InternalName": "VenueAudio",
   "RepoUrl": "https://github.com/NoctusDev/buddys-buddy",
+  "IconUrl": "https://raw.githubusercontent.com/NoctusDev/buddys-buddy/main/venue-audio/native/VenueAudio.Plugin/images/icon.png",
   "Tags": ["audio", "venues", "music"]
 }

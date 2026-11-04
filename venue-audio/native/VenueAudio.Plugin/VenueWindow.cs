@@ -15,19 +15,17 @@ public sealed class VenueWindow : Window
 
     private static readonly (string Name, int Bitrate)[] Qualities =
         [("Voice · 64 kbps", 64000), ("Standard · 96 kbps", 96000), ("High · 128 kbps", 128000), ("Studio · 192 kbps", 192000)];
-    // Encryption, framing, WebSocket, TLS and TCP add roughly this much per guest on top of the audio
-    // itself (50 packets a second). An estimate, deliberately on the high side.
-    private const int OverheadBitsPerSecond = 50_000;
 
     private readonly Session session;
     private readonly Settings settings;
     private readonly Action save;
     private readonly Func<string> characterName;
     private readonly IFontHandle mono;
+    private readonly PageMotion motion;
     private List<AudioDevice> devices = [];
     private Role role;
-    private bool rememberRole, addMicrophone, localHosting, automaticInternet, shortCodes, hideCodes, announce, watchVenues, autoJoin;
-    private string sourceId, microphoneId, invitation, remote, advertised, relayKey, venueName, directoryServer;
+    private bool hideCodes, announce, watchVenues, autoJoin, liveBadge;
+    private string sourceId, microphoneId, invitation, venueName;
     private string deviceError = "";
     private float volume, music, microphone;
     private int bitrate;
@@ -38,21 +36,28 @@ public sealed class VenueWindow : Window
     private (int, int) pushed;
 
     private static Palette P => Current;
+    private bool HasMicrophone => microphoneId.Length > 0;
 
-    public VenueWindow(Session session, Settings settings, Action save, Func<string> characterName, IFontHandle mono)
+    public VenueWindow(Session session, Settings settings, Action save, Func<string> characterName, IFontHandle mono, GuideWindow guide)
         : base("Venue Audio###VenueAudioMain")
     {
         this.session = session; this.settings = settings; this.save = save; this.characterName = characterName; this.mono = mono;
-        role = settings.Role; rememberRole = settings.RememberRole;
-        sourceId = settings.SourceId; microphoneId = settings.MicrophoneId; addMicrophone = settings.AddMicrophone;
-        invitation = settings.LastInvite; remote = settings.RemoteServer; advertised = settings.AdvertisedHost;
-        relayKey = settings.RelayAccessKey; venueName = settings.VenueName; directoryServer = settings.DirectoryServer;
-        localHosting = settings.LocalHosting; automaticInternet = settings.AutomaticInternet;
-        shortCodes = settings.ShortCodes; hideCodes = settings.HideCodes; announce = settings.Announce;
+        role = settings.Role;
+        sourceId = settings.SourceId; microphoneId = settings.MicrophoneId;
+        invitation = settings.LastInvite; venueName = settings.VenueName;
+        hideCodes = settings.HideCodes; announce = settings.Announce; liveBadge = settings.LiveBadge;
         watchVenues = settings.WatchVenues; autoJoin = settings.AutoJoin;
         volume = settings.Volume; music = settings.MusicGain; microphone = settings.MicGain; bitrate = settings.Bitrate;
-        Size = new Vector2(460, 680); SizeCondition = ImGuiCond.FirstUseEver;
-        SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(420, 360), MaximumSize = new Vector2(float.MaxValue) };
+        motion = new PageMotion((int)role);
+        Size = new Vector2(460, 400); SizeCondition = ImGuiCond.FirstUseEver;
+        TitleBarButtons.Add(new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.QuestionCircle,
+            IconOffset = new Vector2(1.5f, 1),
+            Priority = 2,
+            Click = _ => guide.Show(role),
+            ShowTooltip = () => ImGui.SetTooltip("How Venue Audio works"),
+        });
         TitleBarButtons.Add(new TitleBarButton
         {
             Icon = FontAwesomeIcon.Palette,
@@ -64,7 +69,16 @@ public sealed class VenueWindow : Window
         Refresh();
     }
 
-    public override void PreDraw() => pushed = Theme.Push(settings.Style);
+    public override void PreDraw()
+    {
+        pushed = Theme.Push(settings.Style);
+        // Height follows the screen's content; only the width is the player's to drag.
+        float height = motion.Height(S(400), ImGui.GetMainViewport().Size.Y * .9f);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(S(420), height), new Vector2(float.MaxValue, height));
+        Flags = motion.Moving ? ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse : ImGuiWindowFlags.None;
+    }
+
+    public override void OnOpen() => motion.Jump((int)role);
     public override void PostDraw() => Theme.Pop(pushed);
 
     private void Refresh()
@@ -75,19 +89,17 @@ public sealed class VenueWindow : Window
             if (!devices.Any(d => d.Id == sourceId)) sourceId =
                 devices.FirstOrDefault(d => !d.IsOutput && d.Name.Contains("Stream Mix", StringComparison.OrdinalIgnoreCase))?.Id
                 ?? devices.FirstOrDefault(d => d.IsOutput)?.Id ?? "";
-            if (!devices.Any(d => d.Id == microphoneId)) microphoneId = devices.FirstOrDefault(d => !d.IsOutput)?.Id ?? "";
+            if (!devices.Any(d => d.Id == microphoneId)) microphoneId = "";
         }
         catch (Exception e) { deviceError = e.Message; }
     }
 
     private void Remember()
     {
-        settings.Role = role; settings.RememberRole = rememberRole;
-        settings.SourceId = sourceId; settings.MicrophoneId = microphoneId; settings.AddMicrophone = addMicrophone;
-        settings.LastInvite = invitation; settings.VenueName = venueName; settings.DirectoryServer = directoryServer;
-        settings.RemoteServer = remote; settings.AdvertisedHost = advertised; settings.LocalHosting = localHosting;
-        settings.RelayAccessKey = relayKey; settings.AutomaticInternet = automaticInternet;
-        settings.ShortCodes = shortCodes; settings.HideCodes = hideCodes; settings.Announce = announce;
+        settings.Role = role;
+        settings.SourceId = sourceId; settings.MicrophoneId = microphoneId;
+        settings.LastInvite = invitation; settings.VenueName = venueName;
+        settings.HideCodes = hideCodes; settings.Announce = announce; settings.LiveBadge = liveBadge;
         settings.WatchVenues = watchVenues; settings.AutoJoin = autoJoin;
         settings.Volume = volume; settings.MusicGain = music; settings.MicGain = microphone; settings.Bitrate = bitrate;
         save();
@@ -102,12 +114,14 @@ public sealed class VenueWindow : Window
     {
         bool busy = operation is { IsCompleted: false };
         if (!busy) pending = Pending.None;
+        motion.Begin();
         switch (role)
         {
             case Role.Host: DrawHost(busy); break;
             case Role.Listener: DrawListener(busy); break;
             default: DrawRolePicker(); break;
         }
+        motion.End(ImGui.GetStyle().WindowPadding.Y);
     }
 
     // ── Role ─────────────────────────────────────────────────────────────────
@@ -115,20 +129,13 @@ public sealed class VenueWindow : Window
     private void DrawRolePicker()
     {
         Gap(4);
-        ImGui.Text("How are you using Venue Audio?");
-        ImGui.TextColored(Muted, "Pick one to get started. You can switch anytime.");
-        Gap(4);
         if (RoleCard("host", FontAwesomeIcon.BroadcastTower, "Host", "Broadcast your venue's music to guests", P.HostBadge, P.HostBadgeInk))
             PickRole(Role.Host);
         if (RoleCard("listener", FontAwesomeIcon.Headphones, "Listener", "Tune in with a venue code, or walk in", P.ListenBadge, P.ListenIcon))
             PickRole(Role.Listener);
-        Gap();
-        using (ImRaii.PushColor(ImGuiCol.CheckMark, P.Grab))
-            if (ImGui.Checkbox("Remember my choice next time", ref rememberRole)) Remember();
-        Footer("Choosing a role doesn't start any capture or open your microphone. The palette button in the title bar changes the style.");
     }
 
-    private void PickRole(Role value) { role = value; Remember(); }
+    private void PickRole(Role value) { role = value; motion.Go((int)value); Remember(); }
 
     private static bool RoleCard(string id, FontAwesomeIcon icon, string title, string subtitle, Vector4 badge, Vector4 badgeInk)
     {
@@ -176,66 +183,11 @@ public sealed class VenueWindow : Window
         var here = VenueLocation.Current();
         Header("HOST", P.HostBadge, P.HostBadgeInk, !locked);
 
-        Label("VENUE NAME");
-        using (ImRaii.Disabled(locked))
-        {
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##venue", "[Your venue's name]", ref venueName, Invite.MaxLabel);
-            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
-        }
-        string host = characterName();
-        ImGui.TextColored(Muted, host.Length > 0 ? $"Guests see this with your name, {host}." : "Guests see this with your character name.");
-
-        Gap();
-        DrawShare(live);
-
-        using (ImRaii.Disabled(locked || !shortCodes || here == null))
-            if (ImGui.Checkbox("Announce at my venue", ref announce)) Remember();
-        Indented(Muted, !shortCodes ? "Needs short codes (Advanced hosting)."
-            : here == null ? "Go inside your venue's house to announce it. Guests who walk in get a join prompt."
-            : $"{here.Label}. Anyone who walks in gets a join prompt, no code needed.");
-
-        Gap();
-        Label("AUDIO");
-        using (ImRaii.Disabled(locked))
-        {
-            float refresh = ImGui.GetFrameHeight();
-            DevicePicker("##source", ref sourceId, false, ImGui.GetContentRegionAvail().X - refresh - ImGui.GetStyle().ItemSpacing.X);
-            ImGui.SameLine();
-            if (IconButton(FontAwesomeIcon.SyncAlt, "##refresh", refresh)) Refresh();
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Refresh audio devices");
-        }
-        if (!string.IsNullOrEmpty(deviceError)) Wrapped(Error, deviceError);
-        Meter("Level", live ? session.Peak : 0);
-        bool musicMuted = session.MusicMuted;
-        if (MutableSlider("Music", ref music, ref musicMuted, FontAwesomeIcon.VolumeUp, FontAwesomeIcon.VolumeMute, null)) session.MusicGain = music;
-        session.MusicMuted = musicMuted;
-        using (ImRaii.Disabled(locked))
-            if (ImGui.Checkbox("Add my microphone to the mix", ref addMicrophone)) Remember();
-        if (addMicrophone)
-        {
-            using (ImRaii.Disabled(locked)) DevicePicker("##mic", ref microphoneId, true, ImGui.GetContentRegionAvail().X);
-            bool micMuted = session.MicMuted;
-            if (MutableSlider("Mic", ref microphone, ref micMuted, FontAwesomeIcon.Microphone, FontAwesomeIcon.MicrophoneSlash, null)) session.MicGain = microphone;
-            session.MicMuted = micMuted;
-        }
-        else Indented(Muted, "Leave this off if your mixer already includes your microphone.");
-
-        Gap();
-        Label("SOUND QUALITY");
-        using (ImRaii.Disabled(locked)) QualityPicker();
-        int perGuest = (live ? session.Bitrate : bitrate) + OverheadBitsPerSecond;
-        Indented(Muted, live && session.Listeners > 0
-            ? $"Uploading about {Mbps(perGuest * session.Listeners)} for {session.Listeners} guest(s). Each guest adds {Mbps(perGuest)}."
-            : $"Each guest adds about {Mbps(perGuest)} to your upload. 50 guests ≈ {Mbps(perGuest * 50)}.");
-
-        Gap(6);
-        bool ready = devices.Any(d => d.Id == sourceId) && (!addMicrophone || devices.Any(d => d.Id == microphoneId)) &&
-            (automaticInternet || localHosting || (!string.IsNullOrWhiteSpace(remote) && !string.IsNullOrWhiteSpace(relayKey)));
+        bool ready = devices.Any(d => d.Id == sourceId);
         if (live)
         {
             if (BroadcastButton("LIVE  ·  Stop broadcasting", FormatTime(session.LiveFor), true, true)) Run(Pending.Stop, session.StopAsync);
-            string onAir = session.MusicMuted && (!addMicrophone || session.MicMuted) ? "On air, but everything is muted." : "You are on air.";
+            string onAir = session.MusicMuted && (!HasMicrophone || session.MicMuted) ? "On air, but everything is muted." : "You are on air.";
             Centered(P.HostBadgeInk, $"{onAir} {session.Listeners} listening.");
         }
         else if (connecting)
@@ -252,12 +204,56 @@ public sealed class VenueWindow : Window
         {
             if (BroadcastButton("Start broadcasting", null, false, ready)) StartBroadcast(here);
             if (session.Faulted) Centered(Error, session.Status);
-            else Centered(Muted, ready ? "Nothing is captured until you start." : "Choose an audio source to start.");
+            else if (!ready) Centered(Muted, "Choose an audio source to start.");
         }
 
         Gap(4);
-        using (ImRaii.Disabled(locked)) DrawAdvanced();
-        Footer("Penumbra/Lightless visuals can run normally; set booth music to Off.");
+        DrawShare(live);
+
+        Label("VENUE NAME");
+        using (ImRaii.Disabled(locked))
+        {
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputTextWithHint("##venue", "[Your venue's name]", ref venueName, Invite.MaxLabel);
+            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
+        }
+        using (ImRaii.Disabled(locked || here == null))
+            if (ImGui.Checkbox("Announce broadcast", ref announce)) Remember();
+        if (here == null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Stand inside your venue's house to announce your broadcast there.");
+        else if (here != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(here.Label);
+
+        Gap();
+        Label("AUDIO");
+        using (ImRaii.Disabled(locked))
+        {
+            float refresh = ImGui.GetFrameHeight();
+            DevicePicker("##source", ref sourceId, false, ImGui.GetContentRegionAvail().X - refresh - ImGui.GetStyle().ItemSpacing.X);
+            ImGui.SameLine();
+            if (IconButton(FontAwesomeIcon.SyncAlt, "##refresh", refresh)) Refresh();
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Refresh audio devices");
+        }
+        if (!string.IsNullOrEmpty(deviceError)) Wrapped(Error, deviceError);
+        Meter("Level", live ? session.Peak : 0);
+        bool musicMuted = session.MusicMuted;
+        if (MutableSlider("Music", ref music, ref musicMuted, FontAwesomeIcon.VolumeUp, FontAwesomeIcon.VolumeMute, null)) session.MusicGain = music;
+        session.MusicMuted = musicMuted;
+
+        Gap();
+        Label("MICROPHONE");
+        using (ImRaii.Disabled(locked)) DevicePicker("##mic", ref microphoneId, true, ImGui.GetContentRegionAvail().X);
+        if (HasMicrophone)
+        {
+            bool micMuted = session.MicMuted;
+            if (MutableSlider("Mic", ref microphone, ref micMuted, FontAwesomeIcon.Microphone, FontAwesomeIcon.MicrophoneSlash, null)) session.MicGain = microphone;
+            session.MicMuted = micMuted;
+        }
+
+        Gap();
+        Label("SOUND QUALITY");
+        using (ImRaii.Disabled(locked)) QualityPicker();
+
+        Gap();
+        if (ImGui.Checkbox("Show a floating live badge", ref liveBadge)) Remember();
     }
 
     private void DrawShare(bool live)
@@ -285,7 +281,6 @@ public sealed class VenueWindow : Window
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(hideCodes ? "Show the code" : "Hide the code while you stream");
             ImGui.SameLine();
             if (CopyButton("code", copy)) Copy("code", VenueCodes.Display(code));
-            Indented(Muted, "Guests type this in Venue Audio. A new code is made each time you go live.");
             if (LinkButton(Copied("invite") ? "Full invite copied" : "Copy the full invite instead")) Copy("invite", session.Invite);
             if (session.CodeProblem.Length > 0) Indented(Warn, session.CodeProblem);
         }
@@ -299,23 +294,17 @@ public sealed class VenueWindow : Window
             ImGui.SameLine();
             if (CopyButton("invite", copy)) Copy("invite", session.Invite);
             if (session.CodeProblem.Length > 0) Indented(Warn, session.CodeProblem);
-            Indented(Muted, "Send the whole invite. It holds the room's audio key, so share it only with people you want listening.");
         }
-        else
-        {
-            Label("VENUE CODE");
-            Indented(Muted, shortCodes ? "Start broadcasting to get a six-character code for your guests." : "Start broadcasting to get a guest invite.");
-        }
+        else return;
+        Gap(4);
     }
 
     private void StartBroadcast(VenueLocation? here)
     {
         var source = devices.First(d => d.Id == sourceId);
-        string? mic = addMicrophone ? microphoneId : null;
-        bool local = localHosting, auto = automaticInternet;
-        string address = remote, publicHost = advertised, accessKey = relayKey;
-        var options = new BroadcastOptions(bitrate, venueName, characterName(), announce && shortCodes ? here?.Key : null, shortCodes);
-        Run(Pending.Broadcast, () => session.BroadcastAsync(source, mic, local, address, publicHost, accessKey, auto, options: options));
+        string? mic = HasMicrophone ? microphoneId : null;
+        var options = new BroadcastOptions(bitrate, venueName, characterName(), announce ? here?.Key : null);
+        Run(Pending.Broadcast, () => session.BroadcastAsync(source, mic, false, "", "", automaticInternet: true, options: options));
     }
 
     private void QualityPicker()
@@ -326,47 +315,6 @@ public sealed class VenueWindow : Window
         if (!combo) return;
         foreach (var (name, value) in Qualities)
             if (ImGui.Selectable(name, value == bitrate)) { bitrate = value; Remember(); }
-    }
-
-    private void DrawAdvanced()
-    {
-        if (!ImGui.CollapsingHeader("Advanced hosting")) return;
-        using var wrap = ImRaii.TextWrapPos(0);
-        if (ImGui.Checkbox("Short venue codes", ref shortCodes)) Remember();
-        if (shortCodes)
-        {
-            ImGui.TextColored(Muted, "The full invite is stored, encrypted, in the venue directory while you're live, so guests can type a code instead.");
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##directory", "Venue directory address", ref directoryServer, 256);
-            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
-            ImGui.TextColored(Muted, "Changes take effect after reloading the plugin.");
-        }
-        ImGui.Separator();
-        if (ImGui.Checkbox("Automatic internet hosting (temporary address)", ref automaticInternet)) Remember();
-        if (automaticInternet)
-        {
-            ImGui.TextColored(Muted, "Opens a temporary secure internet address when you go live, so friends on other networks can join. No account or router changes. The address changes each time.");
-            return;
-        }
-        if (ImGui.Checkbox("Host on this PC instead of a relay", ref localHosting)) Remember();
-        if (localHosting)
-        {
-            ImGui.TextColored(Muted, "For guests on your own network. Windows may ask to allow network access. Audio is still encrypted; the connection itself is not.");
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##advertised", "Address guests reach (blank: this PC's local IPv4)", ref advertised, 256);
-            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
-            ImGui.TextColored(Muted, $"Listening port: {Wire.Port}.");
-        }
-        else
-        {
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##remote", "Relay address (https://…)", ref remote, 256);
-            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##relaykey", "DJ access key", ref relayKey, 256, ImGuiInputTextFlags.Password);
-            if (ImGui.IsItemDeactivatedAfterEdit()) Remember();
-            ImGui.TextColored(Muted, "The DJ key is saved on this PC only and is never put in guest invites. A sleeping free server can take about a minute to wake.");
-        }
     }
 
     // ── Listener ─────────────────────────────────────────────────────────────
@@ -382,8 +330,6 @@ public sealed class VenueWindow : Window
             Meter("Signal", session.Peak);
             ListenVolume();
             if (ColorButton("Disconnect", Raised, RaisedHover, Ink, -1)) Run(Pending.Stop, session.StopAsync);
-            if (session.JoinedLocation != null) Indented(Muted, "You joined by walking in. Leaving the house disconnects you.");
-            MicrophoneOff();
             return;
         }
         if (busy)
@@ -406,18 +352,18 @@ public sealed class VenueWindow : Window
         using (ImRaii.Disabled(string.IsNullOrWhiteSpace(invitation)))
             if (ColorButton("Join venue", P.ListenButton, P.ListenButtonHover, P.OnListen, -1)) { string value = invitation; Run(Pending.Listen, () => session.ListenAsync(value)); }
         if (session.Faulted) Wrapped(Error, session.Status);
-        Indented(Muted, "Ask the host for their code. Listening never turns on your microphone.");
 
         Gap();
         ListenVolume();
         Gap();
         Label("WALK-IN VENUES");
         autoJoin = settings.AutoJoin;
-        if (ImGui.Checkbox("Watch for venues when I enter a house", ref watchVenues)) Remember();
+        if (ImGui.Checkbox("Auto Discover Venues", ref watchVenues)) Remember();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(GuideWindow.AutoDiscover);
         using (ImRaii.Disabled(!watchVenues))
         using (ImRaii.PushColor(ImGuiCol.CheckMark, P.Listen))
-            if (ImGui.Checkbox("Join automatically, without asking", ref autoJoin)) Remember();
-        Indented(Muted, "When on, the house you enter is checked against the venue directory. Only houses whose host chose to announce are found.");
+            if (ImGui.Checkbox("Auto Join Venues", ref autoJoin)) Remember();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(GuideWindow.AutoJoin);
     }
 
     private void ListenVolume()
@@ -451,13 +397,6 @@ public sealed class VenueWindow : Window
             draw.AddText(new Vector2(max.X - S(14) - size.X, min.Y + (height - size.Y) / 2), U32(Body), elapsed);
         }
         ImGui.Dummy(new Vector2(max.X - min.X, height));
-    }
-
-    private static void MicrophoneOff()
-    {
-        using (ImRaii.PushFont(UiBuilder.IconFont)) ImGui.TextColored(Muted, FontAwesomeIcon.MicrophoneSlash.ToIconString());
-        ImGui.SameLine();
-        ImGui.TextColored(Muted, "Your microphone stays off while listening.");
     }
 
     // ── Widgets ──────────────────────────────────────────────────────────────
@@ -558,7 +497,7 @@ public sealed class VenueWindow : Window
         return ImGui.Button(text);
     }
 
-    private static bool IconButton(FontAwesomeIcon icon, string id, float size)
+    internal static bool IconButton(FontAwesomeIcon icon, string id, float size)
     {
         using var font = ImRaii.PushFont(UiBuilder.IconFont);
         return ImGui.Button(icon.ToIconString() + id, new Vector2(size, size));
@@ -590,8 +529,9 @@ public sealed class VenueWindow : Window
         string selectedId = selected;
         var current = devices.FirstOrDefault(d => d.Id == selectedId);
         ImGui.SetNextItemWidth(width);
-        using var combo = ImRaii.Combo(id, current?.Name ?? (microphoneOnly ? "Choose a microphone" : "Choose an audio source"));
+        using var combo = ImRaii.Combo(id, current?.Name ?? (microphoneOnly ? "None" : "Choose an audio source"));
         if (!combo) return;
+        if (microphoneOnly && ImGui.Selectable("None", selected.Length == 0)) { selected = ""; Remember(); }
         foreach (var device in devices.Where(d => !microphoneOnly || !d.IsOutput))
         {
             string text = (device.IsOutput ? "Output: " : "Input: ") + device.Name;
@@ -608,13 +548,6 @@ public sealed class VenueWindow : Window
 
     private static void Label(string text) => ImGui.TextColored(Muted, text);
     private static void Gap(float height = 2) => ImGui.Dummy(new Vector2(0, S(height)));
-
-    private static void Footer(string text)
-    {
-        Gap(4);
-        ImGui.Separator();
-        Wrapped(Muted, text);
-    }
 
     internal static void Wrapped(Vector4 color, string text)
     {
@@ -636,6 +569,5 @@ public sealed class VenueWindow : Window
         ImGui.TextColored(color, text);
     }
 
-    private static string Mbps(int bitsPerSecond) => bitsPerSecond >= 1_000_000 ? $"{bitsPerSecond / 1_000_000.0:0.#} Mbps" : $"{bitsPerSecond / 1000} kbps";
-    private static string FormatTime(TimeSpan span) => $"{(int)span.TotalHours:00}:{span.Minutes:00}:{span.Seconds:00}";
+    internal static string FormatTime(TimeSpan span) => $"{(int)span.TotalHours:00}:{span.Minutes:00}:{span.Seconds:00}";
 }

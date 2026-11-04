@@ -24,11 +24,11 @@ Add the full DLL path under **Dalamud Settings → Experimental → Dev Plugin L
 
 1. Choose **Host**, and optionally name your venue. Guests see the name with your character name.
 2. Choose **Stream Mix (Elgato Virtual Audio)** or another PC audio source.
-3. Optionally add a microphone if your source mix does not already include it.
-4. Click **Start broadcasting**. Allow up to about a minute for a temporary public address. Automatic internet hosting is the default; other modes are under **Advanced hosting**.
-5. Click **Copy** and send the complete invite to friends with this plugin.
+3. Optionally pick a microphone (it starts on **None**) if your source mix does not already include it.
+4. Click **Start broadcasting** at the top of the Host screen. Allow up to about a minute for a temporary public address.
+5. Click **Copy** and send the six-character code to friends with this plugin.
 
-Friends choose **Listener → Paste → Join venue** in game. They do not need a hosting account or router changes. Listening never opens the microphone. Stop/unload closes audio capture and the host/tunnel processes. Guest volume is independent. The DJ uses a local connection; guests use the secure public tunnel.
+Friends choose **Listener**, type or paste the code, then **Join venue** in game. The first time the plugin opens, a short guide walks through hosting and listening; the question-mark button in the title bar reopens it. While live, a small floating badge shows the timer, listener count and code, with a music mute button. It can be turned off on the Host screen. They do not need a hosting account or router changes. Listening never opens the microphone. Stop/unload closes audio capture and the host/tunnel processes. Guest volume is independent. The DJ uses a local connection; guests use the secure public tunnel.
 
 Output-device capture includes all audio on that device, including game sounds. A mixer input lets you choose what is included. Application-only capture is not implemented. Playlists/transitions remain in your music or DJ software; the plugin transmits the resulting continuous audio.
 
@@ -37,9 +37,10 @@ Use Thunderdome's music-off setting if using its booth/effects. Penumbra and Lig
 ## Venue codes, walk-in joining and styles
 
 - **Venue codes.** Going live reserves a six-character code (shown as `K3M-9QX`) in the venue directory, which runs beside Buddy's Jobs on the same Cloudflare Worker. Guests type the code instead of pasting the long invite. The directory stores only the code's hash and the invite encrypted under a key derived from the code. It is not end-to-end secret against whoever runs the directory, because six characters can be brute-forced offline. The eye button hides the code while you stream. If the directory is unreachable, the plugin falls back to the full invite.
-- **Announce at my venue.** When the host is inside their house, the code is also listed under that house. Listeners who walk into the house get a join prompt (or join automatically if they chose that), and walking out ends a walk-in session. This makes an announced venue joinable by anyone who enters it.
+- **Announce broadcast.** When the host is inside their house, the code is also listed under that house. Listeners who walk into the house get a join prompt (or join automatically if they chose that), and walking out ends a walk-in session. This makes an announced venue joinable by anyone who enters it.
 - **Styles.** The palette button in the title bar cycles through Velvet, Midnight, Gilded and Moonstone, plus Dalamud, which uses your own Dalamud theme colours. Right-click goes back one style.
-- **Mute and quality.** Music and mic each have a mute toggle that keeps guests connected. Listeners can mute too. Sound quality runs from Voice (64 kbps) to Studio (192 kbps), and the host screen shows the upload each guest costs.
+- **Mute and quality.** Music and mic each have a mute toggle that keeps guests connected. Listeners can mute too. Sound quality runs from Voice (64 kbps) to Studio (192 kbps).
+- **Auto Discover / Auto Join Venues.** These are the listener's two walk-in checkboxes: be asked when entering an announced house, or join without asking.
 
 ## Capacity
 
@@ -53,7 +54,7 @@ Audio is encrypted in the plugin using AES-256-GCM before entering the relay. Th
 
 Quick Tunnels are a testing service with no uptime guarantee. The address changes each time. This is **relayed audio**, not native peer-to-peer transport, and should not be treated as a permanent large-venue hosting plan.
 
-Advanced options retain local hosting and a separately hosted secure relay. A Render deployment blueprint and Dockerfile are prepared, but no permanent public service has been deployed. Render is not required for the temporary test mode.
+The plugin UI offers only automatic internet hosting with venue codes. `Session` still supports local hosting and a separately hosted relay (the tests use them), but the plugin exposes no settings for them. A Render deployment blueprint and Dockerfile are prepared, but no permanent public service has been deployed.
 
 ## What has been tested
 

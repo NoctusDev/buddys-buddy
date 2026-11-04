@@ -692,6 +692,58 @@ making possible.
 
 ## Log
 
+### 2026-11-04 — Venue Audio 0.3: decluttered UI, first-run guide, floating live badge
+- **Removed by Dedric's request:** Advanced hosting, Remember my choice, and every muted explanation line.
+  The settings that only Advanced used were dropped from `Settings`: `RemoteServer`, `RelayAccessKey`,
+  `AdvertisedHost`, `LocalHosting`, `AutomaticInternet`, `ShortCodes` and `RememberRole`. Config is now v6.
+  The plugin always broadcasts with `automaticInternet: true`, and `Session` still supports the other modes
+  for the tests. The role is always remembered.
+- The Start broadcasting button now sits right under the HOST header, with the code box directly below it.
+  "Announce at my venue" explains itself in a hover tooltip, using `ImGuiHoveredFlags.AllowWhenDisabled`,
+  instead of a line of text.
+- The listener checkboxes are now "Auto Discover Venues" (`WatchVenues`) and "Auto Join Venues" (`AutoJoin`).
+- `GuideWindow`: four pages (Welcome / How to host / How to listen / Good to know). It opens when
+  `!settings.SeenGuide`, `OnClose` sets the flag, and the title-bar question mark reopens it at the page for
+  the current role. Updating users see it once as well.
+- `LiveBadge`: a NoTitleBar auto-resize window shown via `DrawConditions()`, meaning
+  `settings.LiveBadge && session.Broadcasting`. It shows the timer, listener count, the code (unless hidden),
+  a music mute and an open-controls button. Its position is saved by imgui.ini under `###VenueAudioLive`.
+- **Checked:** the Release build is clean (0 warnings) on `E:\dotnet\dotnet.exe` 10.0.401, and the
+  Tests project builds. **Not checked in game:** the layout, the guide wrap width (400 px scaled), and
+  dragging the badge.
+- **Second pass (same day):**
+  - "Add my microphone" checkbox removed. `MicrophoneId == ""` now means none, and the mic picker has a
+    None entry. Config v7 resets `MicrophoneId` to "" once, because the old code always pre-picked a mic.
+  - "Announce at my venue" is now "Announce broadcast".
+  - The listener checkboxes carry hover tooltips. They share text with the guide through
+    `GuideWindow.AutoDiscover` / `AutoJoin`.
+  - **Third pass:** the motion now applies to every page, not just the guide. Shared `PageMotion`
+    (used by both the main window and the guide):
+    - Each page's height is measured from `GetCursorPosY()` after drawing. That value is in content
+      space, so it is correct even when scrolled.
+    - `PreDraw` eases toward the measured height. The main window locks its height with
+      `SetNextWindowSizeConstraints((420, h), (inf, h))`, so the player can still drag the width. The
+      guide sets its whole size.
+    - The slide moves the page's finished vertices (`draw.VtxBuffer.Data[i].Pos`/`.Col`) by up to 90 px
+      with an ease-out cubic plus an alpha fade. Layout never changes, so widgets don't squash mid-slide.
+      An earlier `Indent` version would have narrowed every `GetContentRegionAvail` widget.
+    - `ImDrawListPtr.VtxBuffer.Size`, `.Data[i]` (by ref), `ImDrawVert.Pos` (Vector2) and `.Col` (uint)
+      compiled first try against the Dalamud.Bindings.ImGui shipped with API 15.
+- **Dalamud window call order, read from the IL of `WindowHost.DrawInternal`** (net10 reflection probe
+  in the scratchpad; PowerShell 5.1 cannot load these assemblies):
+  - The order is `PreDraw` → `ApplyConditionals` → `Begin` → `Draw` → `PostDraw`.
+  - `ApplyConditionals` calls `SetNextWindowSizeConstraints` only when `Window.SizeConstraints.HasValue`.
+  - The other `SetNextWindowSizeConstraints(Zero, +inf)` in `DrawInternal` only runs under `hasError`.
+  - So constraints set in `PreDraw` hold when `SizeConstraints` is null. `Flags` set in `PreDraw` are read
+    afterwards, so they apply the same frame.
+  - `Window.DrawInternal` no longer exists. It moved to `Dalamud.Interface.Windowing.WindowHost`.
+- **Plugin icon:** `VenueAudio.Plugin/images/icon.png` is Dedric's 1254² pixel-art headphones,
+  downscaled to 512² with System.Drawing using NearestNeighbor and PixelOffsetMode.Half. The alpha
+  survived (corner alpha 0). `IconUrl` in `VenueAudio.json` points at raw.githubusercontent on main. The
+  csproj copies it to `bin/Release/images/icon.png` for dev loads. Confirmed: the built manifest carries
+  `IconUrl`.
+- `E:\dotnet` is not on PATH in this shell. Plain `dotnet` exits with code 145 (no SDK), so call it by full path.
+
 ### 2026-11-04 — Venue Audio: short codes, walk-in join, test listener, mute and quality
 - **`HousingManager` members confirmed by reflecting over the live `FFXIVClientStructs.dll`.** Its XML docs
   leave most of them out, so grepping `FFXIVClientStructs.xml` is not enough. Present: `IsInside()`,
