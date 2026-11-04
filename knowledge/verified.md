@@ -692,6 +692,45 @@ making possible.
 
 ## Log
 
+### 2026-11-04 — Venue Audio 0.4: "Marquee" redesign (all windows)
+- **Source:**
+  - Dedric's spec is at `e:\DOWNLOADS\venue-audio-marquee-spec.md`.
+  - The Claude Design canvas is `https://claude.ai/artifact/3wxKwXzy9av7WpKnn191AL`, rows B1–B12 only.
+    Its `.dc.html` artboards hold exact px values and palette hexes per style.
+- **New `MarqueeDraw`:**
+  - `Sign`, with bulb modes Off / Chasing (hard 0.7 s step) / Filling (bottom row reversed) / Dimmed.
+  - `Ticket`, returning `Ticket(Min, Max, Perforation)`. The caller places widgets with
+    `SetCursorScreenPos`, then calls `Advance()`, which does `SetCursorScreenPos(min)` + `Dummy(size)` so
+    the cursor never extends the window without an item.
+  - `Notch`: a ground-coloured circle plus `PathArcTo` / `PathStroke(col, ImDrawFlags.None, 1)` for the
+    inner arc.
+  - `Dashed`, `DashedRect`, and `BeginPanel`/`EndPanel`. The panels use `ChannelsSplit(2)`: widgets go on
+    channel 1, and the background is drawn on channel 0 after measuring. They must not nest.
+- **Compiled against API 15 bindings:**
+  - `draw.AddText(ImFontPtr, float size, Vector2, uint, string)` exists. Small icons use it at 0.8× the
+    font size.
+  - `using (cond ? handle.Push() : null)` is fine for an optional font.
+- **Theme changes:**
+  - Added `HostTint`/`HostEdge`/`HostGlow*`/`HostDim`/`ListenTint`/`ListenEdge`/`WarnEdge`/`ErrorEdge`/`BulbOff`.
+  - `OnListen` is now the ground colour (every listener accent is light), so the palette constructor lost
+    its onListen parameter.
+  - Window padding is 12, frame padding is (8, 5).
+  - The old card and badge shades were removed.
+- **Layout and behaviour:**
+  - The host broadcast control is a bottom `Transport` bar (Idle / Starting / Stopping / Live). Live has
+    a breathing glow, and a hollow dot when everything is muted.
+  - Setup collapses to a summary row and is locked while live.
+  - `Session` flips `Broadcasting` *before* "Reserving a short code…". The going-live checklist therefore
+    only ever shows steps 1–2 as current, and the live screen shows a shimmering "Not yet" ticket until
+    the code arrives.
+  - The listener join ticket: Enter in the input joins. On failure the edge turns the error colour and the
+    button reads "Try again".
+  - The join prompt sign needs an explicit `width`, because `AlwaysAutoResize` plus `GetContentRegionAvail`
+    is circular.
+- **Checked:** the Release build is clean with 0 warnings (normal verbosity), and the Tests project builds.
+- **Not checked in game:** all twelve layouts, five styles, 150% scale, the 420 px minimum width,
+  channel-split panels with combos open, and the slide animation over the new screens.
+
 ### 2026-11-04 — Venue Audio 0.3: decluttered UI, first-run guide, floating live badge
 - **Removed by Dedric's request:** Advanced hosting, Remember my choice, and every muted explanation line.
   The settings that only Advanced used were dropped from `Settings`: `RemoteServer`, `RelayAccessKey`,

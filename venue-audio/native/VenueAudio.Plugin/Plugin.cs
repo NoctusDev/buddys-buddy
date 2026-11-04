@@ -58,17 +58,19 @@ public sealed class Plugin : IDalamudPlugin
         // Dalamud loads assemblies from memory, so Assembly.Location can be empty.
         // Its plugin interface retains the actual installed DLL path.
         string tools = Path.Combine(pluginInterface.AssemblyLocation.DirectoryName
-            ?? throw new IOException("Venue Audio's installation folder could not be found."), "Tools");
+            ?? throw new IOException("House Lights' installation folder could not be found."), "Tools");
         session = new Session(tools, directory) { Volume = settings.Volume, MusicGain = settings.MusicGain, MicGain = settings.MicGain };
         Action save = () => pluginInterface.SavePluginConfig(settings);
-        var guide = new GuideWindow(settings, save);
+        var guide = new GuideWindow(settings, save, pluginInterface.UiBuilder.MonoFontHandle);
         window = new VenueWindow(session, settings, save, () => player.IsLoaded ? player.CharacterName : "",
             pluginInterface.UiBuilder.MonoFontHandle, guide);
         var badge = new LiveBadge(session, settings, pluginInterface.UiBuilder.MonoFontHandle, () => window.IsOpen = true);
-        var prompt = new JoinPrompt(settings, save);
+        var prompt = new JoinPrompt(settings, save, pluginInterface.UiBuilder.MonoFontHandle);
         watcher = new VenueWatcher(framework, session, settings, directory, prompt);
         windows.AddWindow(window); windows.AddWindow(prompt); windows.AddWindow(guide); windows.AddWindow(badge);
-        commands.AddHandler("/venueaudio", new CommandInfo((_, _) => Toggle()) { HelpMessage = "Open Venue Audio's broadcast and listening controls." });
+        commands.AddHandler("/houselights", new CommandInfo((_, _) => Toggle()) { HelpMessage = "Open House Lights' broadcast and listening controls." });
+        // The plugin's old name, so players who learned it aren't left typing a dead command.
+        commands.AddHandler("/venueaudio", new CommandInfo((_, _) => Toggle()) { ShowInHelp = false });
         pluginInterface.UiBuilder.Draw += windows.Draw;
         pluginInterface.UiBuilder.OpenConfigUi += Toggle;
         pluginInterface.UiBuilder.OpenMainUi += Toggle;
@@ -82,7 +84,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.Draw -= windows.Draw;
         pluginInterface.UiBuilder.OpenConfigUi -= Toggle;
         pluginInterface.UiBuilder.OpenMainUi -= Toggle;
-        commands.RemoveHandler("/venueaudio"); windows.RemoveAllWindows();
+        commands.RemoveHandler("/houselights"); commands.RemoveHandler("/venueaudio"); windows.RemoveAllWindows();
         watcher.Dispose();
         session.DisposeAsync().AsTask().GetAwaiter().GetResult();
         directory.Dispose();

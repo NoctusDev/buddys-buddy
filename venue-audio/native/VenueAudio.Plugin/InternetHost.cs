@@ -14,7 +14,7 @@ public sealed class InternetHost : IAsyncDisposable
     {
         string gateway = Path.Combine(toolsFolder, "Relay", "VenueAudio.WebRelay.exe");
         string tunnel = Path.Combine(toolsFolder, "cloudflared.exe");
-        if (!File.Exists(gateway) || !File.Exists(tunnel)) throw new IOException("Internet hosting helpers are missing. Use the complete Venue Audio test folder.");
+        if (!File.Exists(gateway) || !File.Exists(tunnel)) throw new IOException("Internet hosting helpers are missing. Use the complete House Lights test folder.");
         var ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var start = new ProcessStartInfo(gateway)
         {

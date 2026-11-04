@@ -1,6 +1,7 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
@@ -75,16 +76,17 @@ public sealed class JoinPrompt : Window
 {
     private readonly Settings settings;
     private readonly Action save;
+    private readonly IFontHandle mono;
     private FoundVenue? offer;
     private bool always;
     private (int, int) pushed;
     public Action<FoundVenue>? Join { get; set; }
     public Action<FoundVenue>? Decline { get; set; }
 
-    public JoinPrompt(Settings settings, Action save)
-        : base("Venue Audio###VenueAudioPrompt", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoSavedSettings)
+    public JoinPrompt(Settings settings, Action save, IFontHandle mono)
+        : base("House Lights###VenueAudioPrompt", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoSavedSettings)
     {
-        this.settings = settings; this.save = save;
+        this.settings = settings; this.save = save; this.mono = mono;
         RespectCloseHotkey = true;
     }
 
@@ -109,27 +111,38 @@ public sealed class JoinPrompt : Window
     {
         if (offer == null) { IsOpen = false; return; }
         var venue = offer;
-        var draw = ImGui.GetWindowDrawList();
+        var p = Current;
+        float width = S(360);
+        var lines = new List<SignLine>
+        {
+            new("NOW PLAYING", p.Listen),
+            new(venue.Venue.Length > 0 ? venue.Venue.ToUpperInvariant() : "LIVE VENUE", Ink),
+        };
+        if (venue.HostName.Length > 0) lines.Add(new("hosted by " + venue.HostName, Muted));
+        MarqueeDraw.Sign(mono, Bulbs.Chasing, p.Listen, p.ListenEdge, lines, bulbs: 18, width: width);
+
+        const string question = "This venue is playing live music. Join and listen?";
+        float start = ImGui.GetCursorPosX();
+        ImGui.SetCursorPosX(start + Math.Max(0, (width - ImGui.CalcTextSize(question).X) / 2));
+        ImGui.TextColored(Body, question);
+
+        float half = (width - ImGui.GetStyle().ItemSpacing.X) / 2, height = S(40);
         var min = ImGui.GetCursorScreenPos();
-        var center = min + new Vector2(S(20), S(20));
-        draw.AddCircleFilled(center, S(20), U32(Current.ListenBadge));
-        VenueWindow.Icon(draw, FontAwesomeIcon.Music, center, U32(Current.ListenIcon));
-        ImGui.SetCursorScreenPos(min + new Vector2(S(52), S(10)));
-        ImGui.Text("This venue has Venue Audio");
-        ImGui.SetCursorScreenPos(min + new Vector2(0, S(48)));
-        string name = venue.Venue.Length > 0 ? venue.Venue : "This venue";
-        string by = venue.HostName.Length > 0 ? $", hosted by {venue.HostName}" : "";
-        using (ImRaii.TextWrapPos(S(360))) ImGui.TextColored(Body, $"{name} is playing live music{by}. Would you like to join and listen?");
-        ImGui.Dummy(new Vector2(S(360), S(4)));
-        float half = (S(360) - ImGui.GetStyle().ItemSpacing.X) / 2;
-        using (ImRaii.PushColor(ImGuiCol.Button, Current.ListenButton).Push(ImGuiCol.ButtonHovered, Current.ListenButtonHover).Push(ImGuiCol.Text, Current.OnListen))
-            if (ImGui.Button("Join", new Vector2(half, S(40))))
-            {
-                if (always) { settings.AutoJoin = true; save(); }
-                offer = null; IsOpen = false; Join?.Invoke(venue);
-            }
+        if (ImGui.InvisibleButton("##join", new Vector2(half, height)))
+        {
+            if (always) { settings.AutoJoin = true; save(); }
+            offer = null; IsOpen = false; Join?.Invoke(venue);
+        }
+        bool hovered = ImGui.IsItemHovered();
+        var draw = ImGui.GetWindowDrawList();
+        draw.AddRectFilled(min, min + new Vector2(half, height), U32(hovered ? p.ListenButtonHover : p.Listen), R(4));
+        float label = ImGui.CalcTextSize("Join").X, x = min.X + (half - S(22) - label) / 2, mid = min.Y + height / 2;
+        VenueWindow.Icon(draw, FontAwesomeIcon.Headphones, new Vector2(x + S(8), mid), U32(p.OnListen), small: true);
+        draw.AddText(new Vector2(x + S(22), mid - ImGui.GetTextLineHeight() / 2), U32(p.OnListen), "Join");
+        if (hovered) ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
         ImGui.SameLine();
-        if (ImGui.Button("Not now", new Vector2(half, S(40)))) IsOpen = false;
-        using (ImRaii.PushColor(ImGuiCol.CheckMark, Current.Listen)) ImGui.Checkbox("Join walk-in venues automatically from now on", ref always);
+        if (ImGui.Button("Not now", new Vector2(half, height))) IsOpen = false;
+        using (ImRaii.PushColor(ImGuiCol.CheckMark, p.Listen).Push(ImGuiCol.Text, Muted))
+            ImGui.Checkbox("Join walk-in venues automatically from now on", ref always);
     }
 }

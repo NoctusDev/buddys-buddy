@@ -14,38 +14,36 @@ public sealed class Palette
     public float Round { get; }
     /// <summary>False for the style that borrows the player's own Dalamud colours instead of pushing ours.</summary>
     public bool PushColors { get; }
-    public Vector4 Ground, Surface, Tile, TileHover, Field, FieldHover, FieldActive, Raised, RaisedHover, RaisedActive,
-        Edge, EdgeHover, Border, Ink, Body, Muted, Grab, Title,
-        Host, HostBadge, HostBadgeInk, HostIdle, HostIdleHover, HostLabel, Live, LiveHover, LiveEdge, OnHost, MutedBadge,
-        Listen, ListenBadge, ListenBadgeInk, ListenIcon, ListenButton, ListenButtonHover, OnListen, NowCard, NowEdge,
-        Error, Warn;
+    public Vector4 Ground, Surface, TileHover, Field, FieldHover, FieldActive, Raised, RaisedHover, RaisedActive,
+        Edge, Border, Ink, Body, Muted, Grab, Title,
+        Host, LiveHover, OnHost, Listen, ListenButtonHover, OnListen, Error, Warn,
+        HostTint, HostEdge, HostGlowOuter, HostGlowInner, HostDim, ListenTint, ListenEdge, WarnEdge, ErrorEdge, BulbOff;
 
     public Palette(string name, uint ground, uint surface, uint field, uint raised, uint edge, uint ink, uint muted, uint title,
-        uint host, uint onHost, uint listen, uint onListen, uint error, uint warn, float round, bool pushColors = true)
+        uint host, uint onHost, uint listen, uint error, uint warn, float round, bool pushColors = true)
         : this(name, Theme.Rgb(ground), Theme.Rgb(surface), Theme.Rgb(field), Theme.Rgb(raised), Theme.Rgb(edge), Theme.Rgb(ink),
-            Theme.Rgb(muted), Theme.Rgb(title), Theme.Rgb(host), Theme.Rgb(onHost), Theme.Rgb(listen), Theme.Rgb(onListen),
+            Theme.Rgb(muted), Theme.Rgb(title), Theme.Rgb(host), Theme.Rgb(onHost), Theme.Rgb(listen),
             Theme.Rgb(error), Theme.Rgb(warn), round, pushColors) { }
 
     public Palette(string name, Vector4 ground, Vector4 surface, Vector4 field, Vector4 raised, Vector4 edge, Vector4 ink, Vector4 muted,
-        Vector4 title, Vector4 host, Vector4 onHost, Vector4 listen, Vector4 onListen, Vector4 error, Vector4 warn, float round, bool pushColors)
+        Vector4 title, Vector4 host, Vector4 onHost, Vector4 listen, Vector4 error, Vector4 warn, float round, bool pushColors)
     {
         Name = name; Round = round; PushColors = pushColors;
         Ground = ground; Surface = surface; Field = field; Raised = raised; Edge = edge; Ink = ink; Muted = muted; Title = title;
-        Host = host; OnHost = onHost; Listen = listen; OnListen = onListen; Error = error; Warn = warn;
-        var black = new Vector4(0, 0, 0, 1);
+        // Every listener accent is light, so text on it uses the window's own dark ground.
+        Host = host; OnHost = onHost; Listen = listen; OnListen = ground; Error = error; Warn = warn;
+        HostTint = host with { W = .12f }; HostEdge = host with { W = .4f }; HostDim = host with { W = .3f };
+        HostGlowOuter = host with { W = .12f }; HostGlowInner = host with { W = .25f };
+        ListenTint = listen with { W = .11f }; ListenEdge = listen with { W = .4f };
+        WarnEdge = warn with { W = .5f }; ErrorEdge = error with { W = .5f }; BulbOff = raised;
         Body = Mix(muted, ink, .6f);
-        Tile = Mix(ground, surface, 1.4f); TileHover = Mix(Tile, ink, .05f);
+        TileHover = Mix(Mix(ground, surface, 1.4f), ink, .05f);
         FieldHover = Mix(field, ink, .05f); FieldActive = Mix(field, ink, .09f);
         RaisedHover = Mix(raised, ink, .1f); RaisedActive = Mix(raised, ink, .16f);
-        EdgeHover = Mix(edge, ink, .2f); Border = Mix(ground, edge, .6f);
+        Border = Mix(ground, edge, .6f);
         Grab = Mix(muted, raised, .3f);
-        HostBadge = Mix(ground, host, .22f); HostBadgeInk = Mix(host, ink, .45f);
-        HostIdle = Mix(ground, host, .1f); HostIdleHover = Mix(ground, host, .18f); HostLabel = Mix(ink, host, .1f);
-        Live = Mix(host, black, .1f); LiveHover = Mix(host, ink, .08f); LiveEdge = Mix(host, ink, .4f);
-        MutedBadge = Mix(ground, error, .3f);
-        ListenBadge = Mix(ground, listen, .22f); ListenBadgeInk = Mix(listen, ink, .4f); ListenIcon = Mix(listen, ink, .25f);
-        ListenButton = Mix(listen, ground, .35f); ListenButtonHover = Mix(listen, ground, .2f);
-        NowCard = Mix(ground, listen, .1f); NowEdge = Mix(ground, listen, .35f);
+        LiveHover = Mix(host, ink, .08f);
+        ListenButtonHover = Mix(listen, ink, .15f);
     }
 
     private static Vector4 Mix(Vector4 a, Vector4 b, float t) => a + (b - a) * t;
@@ -57,16 +55,16 @@ internal static class Theme
     [
         // The original look: crimson broadcast, blue listening, near-black panels.
         new("Velvet", 0x161617, 0x1d1d20, 0x2a2a2c, 0x3d3d40, 0x3a3a3e, 0xf4f2ef, 0xa9a6a1, 0x5e2222,
-            0xd94141, 0xffffff, 0x4ea1d9, 0xffffff, 0xff8a8a, 0xe0b84a, 1f),
+            0xd94141, 0xffffff, 0x4ea1d9, 0xff8a8a, 0xe0b84a, 1f),
         // Club lighting: deep navy, hot pink on air, cyan for guests, softer corners.
         new("Midnight", 0x0d0f1c, 0x151933, 0x1d2240, 0x2a3058, 0x323a66, 0xeef0ff, 0x9aa0c8, 0x3b1a5c,
-            0xff4fa3, 0xffffff, 0x3ad6f0, 0xffffff, 0xff7a9a, 0xffd166, 1.6f),
+            0xff4fa3, 0xffffff, 0x3ad6f0, 0xff7a9a, 0xffd166, 1.6f),
         // A lounge: warm black, gold on air with dark lettering, jade for guests, crisp corners.
         new("Gilded", 0x14110c, 0x1d1912, 0x28221a, 0x3a3224, 0x4a3f2b, 0xf6eedd, 0xb5a88e, 0x4a3512,
-            0xd6a84a, 0x1a1408, 0x6fb7a8, 0xffffff, 0xff8f7a, 0xe8c46a, .5f),
+            0xd6a84a, 0x1a1408, 0x6fb7a8, 0xff8f7a, 0xe8c46a, .5f),
         // Pastel night: violet on air, mint for guests, rounded like pills.
         new("Moonstone", 0x17151d, 0x1f1c28, 0x2a2635, 0x3a3549, 0x413b52, 0xf3f0fa, 0xaaa3bd, 0x3d2f5e,
-            0xb18cff, 0x160f26, 0x6ee7c8, 0x0b201b, 0xff9db0, 0xf2d27a, 2.2f),
+            0xb18cff, 0x160f26, 0x6ee7c8, 0xff9db0, 0xf2d27a, 2.2f),
     ];
     public const string MatchDalamud = "Dalamud";
     public static IEnumerable<string> Names => Styles.Select(s => s.Name).Append(MatchDalamud);
@@ -111,7 +109,7 @@ internal static class Theme
         Current = style == MatchDalamud ? FromDalamud() : Styles.FirstOrDefault(s => s.Name == style) ?? Styles[0];
         int colors = 0, styles = 0;
         void Style(ImGuiStyleVar slot, Vector2 value) { ImGui.PushStyleVar(slot, value); styles++; }
-        Style(ImGuiStyleVar.WindowPadding, new Vector2(S(16), S(14))); Style(ImGuiStyleVar.FramePadding, new Vector2(S(10), S(8)));
+        Style(ImGuiStyleVar.WindowPadding, new Vector2(S(12), S(12))); Style(ImGuiStyleVar.FramePadding, new Vector2(S(8), S(5)));
         Style(ImGuiStyleVar.ItemSpacing, new Vector2(S(6), S(8)));
         if (!Current.PushColors) return (colors, styles);
         void Rounding(ImGuiStyleVar slot, float value) { ImGui.PushStyleVar(slot, value); styles++; }
@@ -142,7 +140,7 @@ internal static class Theme
         var ground = C(ImGuiCol.WindowBg) with { W = 1 };
         return new Palette(MatchDalamud, ground, Mix(ground, C(ImGuiCol.Text), .04f), C(ImGuiCol.FrameBg), C(ImGuiCol.Button),
             C(ImGuiCol.Border), C(ImGuiCol.Text), C(ImGuiCol.TextDisabled), C(ImGuiCol.TitleBgActive),
-            Rgb(0xd94141), White, Rgb(0x4ea1d9), White, Rgb(0xff8a8a), Rgb(0xe0b84a), 1f, false);
+            Rgb(0xd94141), White, Rgb(0x4ea1d9), Rgb(0xff8a8a), Rgb(0xe0b84a), 1f, false);
     }
 
     private static Vector4 Mix(Vector4 a, Vector4 b, float t) => a + (b - a) * t;

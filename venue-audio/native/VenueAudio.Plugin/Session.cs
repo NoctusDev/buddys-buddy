@@ -75,7 +75,7 @@ public sealed class Session : IAsyncDisposable
             status = "Opening a temporary internet relay… This can take about a minute.";
             internetHost = new InternetHost();
             string folder = toolsFolder ?? installedToolsFolder
-                ?? throw new IOException("The plugin's hosting-file location is unavailable. Reload Venue Audio and try again.");
+                ?? throw new IOException("The plugin's hosting-file location is unavailable. Reload House Lights and try again.");
             string endpoint = await internetHost.StartAsync(folder, connecting.Token);
             serverKey = internetHost.AccessKey;
             shared = Core.Invite.Hosted(endpoint, room);
