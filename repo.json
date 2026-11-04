@@ -28,5 +28,31 @@
     "CanUnloadAsync": false,
     "LoadPriority": 0,
     "DownloadCount": 0
+  },
+  {
+    "Author": "NoctusDev",
+    "Name": "Venue Audio",
+    "InternalName": "VenueAudio",
+    "AssemblyVersion": "0.1.2.1",
+    "Description": "Broadcast a PC audio output or mixer, optionally add your microphone, and listen together inside FFXIV. Automatic temporary internet hosting lets friends join from other networks using a guest invite. Audio is encrypted before entering the relay. Open using the plugin settings button or /venueaudio. Early test build; the temporary hosting address changes each broadcast.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/NoctusDev/buddys-buddy",
+    "Tags": [
+      "audio",
+      "venues",
+      "music"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "Broadcast your PC audio and listen together, inside FFXIV.",
+    "AcceptsFeedback": true,
+    "DownloadLinkInstall": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.1.2.1/VenueAudio.zip",
+    "DownloadLinkUpdate": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.1.2.1/VenueAudio.zip",
+    "DownloadLinkTesting": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.1.2.1/VenueAudio.zip",
+    "IsHide": false,
+    "IsTestingExclusive": false
   }
 ]
