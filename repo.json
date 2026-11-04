@@ -33,8 +33,8 @@
     "Author": "NoctusDev",
     "Name": "Venue Audio",
     "InternalName": "VenueAudio",
-    "AssemblyVersion": "0.2.0.2",
-    "Description": "Broadcast a PC audio output or mixer, optionally add your microphone, and listen together inside FFXIV. Automatic temporary internet hosting lets friends join from other networks using a guest invite. Audio is encrypted before entering the relay. Open using the plugin settings button or /venueaudio. Early test build; the temporary hosting address changes each broadcast.",
+    "AssemblyVersion": "0.3.0.3",
+    "Description": "Broadcast a PC audio output or mixer, optionally add your microphone, and listen together inside FFXIV. Guests join with a six-character venue code, or just by walking into an announced venue. Audio is encrypted before entering the relay. Open using the plugin settings button or /venueaudio.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/NoctusDev/buddys-buddy",
     "Tags": [
@@ -47,11 +47,12 @@
     "LoadSync": false,
     "CanUnloadAsync": false,
     "LoadPriority": 0,
+    "IconUrl": "https://raw.githubusercontent.com/NoctusDev/buddys-buddy/main/venue-audio/native/VenueAudio.Plugin/images/icon.png",
     "Punchline": "Broadcast your PC audio and listen together, inside FFXIV.",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.2.0.2/VenueAudio.zip",
-    "DownloadLinkUpdate": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.2.0.2/VenueAudio.zip",
-    "DownloadLinkTesting": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.2.0.2/VenueAudio.zip",
+    "DownloadLinkInstall": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.3.0.3/VenueAudio.zip",
+    "DownloadLinkUpdate": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.3.0.3/VenueAudio.zip",
+    "DownloadLinkTesting": "https://github.com/NoctusDev/buddys-buddy/releases/download/venue-audio-v0.3.0.3/VenueAudio.zip",
     "IsHide": false,
     "IsTestingExclusive": false
   }
